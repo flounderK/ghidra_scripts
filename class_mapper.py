@@ -1,8 +1,15 @@
+"""
+This script is meant to further the analysis of c++ classes
+performed by
+RecoverClassesFromRTTIScript.java and astrelsky/Ghidra-Cpp-Class-Analyzer.
+
+"""
 
 from collections import defaultdict
 from ghidra.app.decompiler import DecompileOptions
 from ghidra.app.decompiler import DecompInterface
 from ghidra.util.task import ConsoleTaskMonitor
+from ghidra.program.flatapi import FlatProgramAPI
 
 
 class ClassMapper:
@@ -23,6 +30,7 @@ class ClassMapper:
 
         self._thiscall_str = u'__thiscall'
         self._vftable_str = u'vftable'
+        self._vtable_str = u'vtable'
 
         self._decomp_options = DecompileOptions()
         self._monitor = ConsoleTaskMonitor()
@@ -53,7 +61,14 @@ class ClassMapper:
         null_addr = self.addr_space.getAddress(0)
         for namespace in self.sym_tab.getClassNamespaces():
             for s in self.sym_tab.getChildren(namespace.getSymbol()):
-                if s.name.find(self._vftable_str) == -1:
+                usable_vtable_symbol = False
+                if s.name.find(self._vftable_str) != -1:
+                    usable_vtable_symbol = True
+
+                if s.name.find(self._vtable_str) != -1:
+                    usable_vtable_symbol = True
+
+                if not usable_vtable_symbol:
                     continue
 
                 vftable_entries = self.get_vftable_entries(s)
@@ -75,6 +90,8 @@ class ClassMapper:
 
     def get_vftable_entries(self, vftable):
         vftable_addr = vftable.getAddress()
+        if vftable.name.find(self._vtable_str) != -1:
+            vftable_addr = vftable_addr.add(self.ptr_size*2)
         addr = vftable_addr
         funcs = []
         while True:
@@ -100,8 +117,6 @@ class ClassMapper:
         maybe_this = prot.getParam(0)
         return maybe_this.getDataType()
 
-# import sys, os
-# sys.path.append(os.getcwd())
 # import class_mapper
 # cm = class_mapper.ClassMapper(currentProgram)
 # cm.associate_vftable_functions_with_namespace()
