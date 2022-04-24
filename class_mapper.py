@@ -21,7 +21,6 @@ from ghidra.python import PythonScript
 
 class ClassNamespaceAssociator:
     def __init__(self, currentProgram):
-        super(self).__init__()
         self.fm = currentProgram.getFunctionManager()
         self.dtm = currentProgram.getDataTypeManager()
         self.namespace_manager = currentProgram.getNamespaceManager()
