@@ -1,21 +1,27 @@
-"""
-This script is meant to further the analysis of c++ classes
-performed by
-RecoverClassesFromRTTIScript.java and astrelsky/Ghidra-Cpp-Class-Analyzer.
-
-"""
+# Namespace Association and class analysis to improve C++ analysis from
+# RecoverClassesFromRTTIScript.java and astrelsky/Ghidra-Cpp-Class-Analyzer.
+# The script currently requires one of those to have already been performed,
+# or for vtables to have either 'vtable' or 'vftable' in their label.
+#
+# The script is also a work in progress, so there will likely be improvements
+# made, especially when it comes to inheritance structures, call graph
+# analysis, and association of functions with a given class namespace.
+#@author Clifton Wolfe
+#@category C++
 
 from collections import defaultdict
 from ghidra.app.decompiler import DecompileOptions
 from ghidra.app.decompiler import DecompInterface
 from ghidra.util.task import ConsoleTaskMonitor
 from ghidra.program.flatapi import FlatProgramAPI
+from ghidra.python import PythonScript
 
 # TODO: Try to autofill class structrues based on thisptr
 
 
-class ClassMapper:
+class ClassNamespaceAssociator:
     def __init__(self, currentProgram):
+        super(self).__init__()
         self.fm = currentProgram.getFunctionManager()
         self.dtm = currentProgram.getDataTypeManager()
         self.namespace_manager = currentProgram.getNamespaceManager()
@@ -261,17 +267,17 @@ class ClassMapper:
         return found_private_functions
 
 
-# from class_mapper import ClassMapper
-# cm = ClassMapper(currentProgram)
-# cm.set_function_associations()
+# from class_mapper import ClassNamespaceAssociator
+# ca = ClassNamespaceAssociator(currentProgram)
+# ca.set_function_associations()
 
 if __name__ == '__main__':
-    cm = ClassMapper(currentProgram)
-    cm.set_function_associations()
+    ca = ClassNamespaceAssociator(currentProgram)
+    ca.set_function_associations()
     print("Done Running!")
 
-# funcs = cm.get_vftable_entries(cm.class_syms[u'ActiveLoggerImpl'][2])
+# funcs = ca.get_vftable_entries(cm.class_syms[u'ActiveLoggerImpl'][2])
 # func = funcs[0]
-# datatype = cm.get_datatype_of_thisptr(func)
+# datatype = ca.get_datatype_of_thisptr(func)
 # base_datatype_name = datatype.displayName.replace(' *', '')
-# [b] = [i for i in cm.dtm.getAllStructures() if i.getName() == base_datatype_name]
+# [b] = [i for i in ca.dtm.getAllStructures() if i.getName() == base_datatype_name]
