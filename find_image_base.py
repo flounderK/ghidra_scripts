@@ -14,6 +14,7 @@ from ghidra.app.util import MemoryBlockUtils
 from ghidra.program.model.address import AddressSet
 from ghidra.program.model.pcode import PcodeOpAST
 from ghidra.program.model.address import GenericAddress, Address
+from ghidra.program.model.symbol import FlowType
 import sys
 
 
@@ -55,36 +56,53 @@ class DisassemblyHelper:
         if hf is None:
             return []
         return hf.getPcodeOps()
-        # pcode_ops = list(hf.getPcodeOps())
-        # return pcode_ops
-
-        # for i in pcode_ops:
-        #     print(i)
-        #     if i.mnemonic.find(u'BRANCH') != -1 or i.mnemonic.find(u'CALL') != -1:
-        #         pcode_op = i
-        #         break
-
 
 # TODO: RegionFinder
 # Track non-stack accesses/calls in rom to addresses that aren't mapped,
-# identify minumums and maximums.
+# identify minimums and maximums.
 # group the accesses by page,
 #
+#
+# Identifying possible base address
+# While invalid memory accesses could indicate either the expected load
+# address of the binary or the address of mmio/ something else,
+# invalid call addresses indicate executable memory. Executable memory
+# cannot be uninitialized and work as intended, so one of the following
+# is likely expected to be in that location:
+#  - this binary (or an in memory copy of it), at a different
+#        base address. This might be the case if the binary
+#        isn't PIE or has an entirely separate copy of itself
+#        for a data segment
+#  - a separate, uknown binary, like something placed into memory by
+#        a different chip
+#  - something like JIT code/self modifying code, placed there at
+#        runtime
+#
+# This inference can be used as a data point and an attempt can be made
+# to identify if the called addresses actually correctly look like they
+# could be calls to this binary, just in a different location in memory
+#
+#
+
 
 class MemoryRegionFinder:
-    def __init__(self, currentProgram, page_size=0x1000, error_thresh_pages=8):
+    def __init__(self, currentProgram, page_size=0x1000,
+                 error_thresh_pages=8):
         self.currentProgram = currentProgram
         self.dh = DisassemblyHelper(currentProgram)
         self.page_size = page_size
         # TODO: make sure jython doesn't mess with this like it
         # does with ctypes
         self._page_mask = sys.maxsize ^ (page_size - 1)
+        self._page_addrs = []
+        self._invalid_calls = []
+        self._invalid_accesses = []
 
         self._error_thres = self.page_size*error_thresh_pages
-        addr_set = self.find_invalid_accesses()
-        self._addr_set_pages = self._get_addr_set_pages(addr_set)
+        self._find_invalid_accesses()
+        self._consolidated_pages = self._get_addr_set_pages(self._invalid_accesses)
 
-    def find_invalid_accesses(self):
+    def _find_invalid_accesses(self):
         """
         Search for referenced addresses outside of the currently
         defined memory space
@@ -92,37 +110,51 @@ class MemoryRegionFinder:
         """
         listing = self.currentProgram.getListing()
         mem = self.dh.mem
-        addr_set = AddressSet()
+        monitor = self.dh._monitor
+        invalid_accesses = set()
+        invalid_call_addrs = set()
         for instr in listing.getInstructions(1):
+            if monitor.isCancelled():
+                break
             for ref in instr.getReferencesFrom():
                 to_addr = ref.getToAddress()
-                if not mem.contains(to_addr) and \
-                   not to_addr.isStackAddress() and \
-                   not to_addr.isRegisterAddress():
-                    addr_set.add(to_addr)
+                if mem.contains(to_addr) or \
+                   to_addr.isStackAddress() or \
+                   to_addr.isRegisterAddress():
+                    continue
 
-        return addr_set
+                reftype = ref.getReferenceType()
+                if reftype in [FlowType.UNCONDITIONAL_JUMP,
+                               FlowType.UNCONDITIONAL_CALL]:
+                    invalid_call_addrs.add(to_addr)
+                else:
+                    invalid_accesses.add(to_addr)
 
-    def _get_addr_set_pages(self, addr_set):
+        self._invalid_calls = list(invalid_call_addrs)
+        self._invalid_calls.sort()
+        self._invalid_accesses = list(invalid_accesses)
+        self._invalid_accesses.sort()
+
+    def _get_addr_set_pages(self, addrs):
         """
-        Consolidate the addresses in an addr set
+        Consolidate the addresses in a list of addresses
         and return an address set that specifies pages instead
         of individual addresses
         Note: only uses minAddress, not maxAddress
         """
-        page_addrs = [i.minAddress.getOffset() & self._page_mask
-                      for i in addr_set]
-        page_addrs = list(set(page_addrs))
-        page_addrs.sort()
-        if len(page_addrs) == 0:
-            return addr_set
+        self._page_addrs = [i.getOffset() & self._page_mask
+                            for i in addrs]
+        self._page_addrs = list(set(self._page_addrs))
+        self._page_addrs.sort()
+        if len(self._page_addrs) == 0:
+            return addrs
 
         # #speedhack
         create_new_addr_func = self.dh.default_addr_space.getAddress
         new_addr_set = AddressSet()
         region = []
         last_addr = None
-        for addr in page_addrs:
+        for addr in self._page_addrs:
             if last_addr is None or \
                (last_addr + self._error_thres) >= addr:
                 region.append(addr)
@@ -145,13 +177,7 @@ class MemoryRegionFinder:
         return new_addr_set
 
 
-
-
-
-
-
 # if __name__ == '__main__':
 # rbf = RomBaseFinder(currentProgram)
 # from find_image_base import *
 # dh = DisassemblyHelper(currentProgram)
-
