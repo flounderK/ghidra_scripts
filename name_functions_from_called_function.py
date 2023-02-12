@@ -112,6 +112,7 @@ class FunctionRenamer:
                 param_def = follow_until_ptrsub(param_varnode)
             except:
                 additional_analysis_needed_funcs.add(calling_func_node.function)
+                continue
             # print("param def '%s'" % str(param_def))
             # there is a weird roundabout way of looking stuff up here because there is a varnode being compared 
             # with an arbitrary stackpointer offset
@@ -143,7 +144,8 @@ class FunctionRenamer:
     def follow_ptrsub_ref(self, pcode_ops, ptrsub_op):
         non_register_varnode = [i for i in ptrsub_op.getInputs() if not i.isRegister()][0]
         stack_offset = non_register_varnode.offset
-
+        if ptrsub_op.opcode == PcodeOpAST.COPY:
+            return [self.addr_space.getAddress(ptrsub_op.getInput(0).getOffset())]
         stackspace_id = self.addr_fact.getStackSpace().spaceID
         copied_values = []
         for op in pcode_ops:
@@ -182,11 +184,12 @@ class FunctionRenamer:
 def contains_path_markers(s):
     return s.find("\\") != -1 or s.find("/") != -1
 
-def follow_until_ptrsub(varnode):
+def follow_until_ptrsub(varnode, maxcount=20):
     param_def = varnode.getDef()
-    while param_def.opcode != PcodeOpAST.PTRSUB:
+    while param_def.opcode not in [PcodeOpAST.PTRSUB, PcodeOpAST.COPY] and maxcount > 0:
         varnode = param_def.getInput(1)
         param_def = varnode.getDef()
+        maxcount -= 1
         if param_def.opcode == PcodeOpAST.MULTIEQUAL:
             print("MULTIEQUAL op found, results might be incorrect")
     return param_def
@@ -200,14 +203,15 @@ def follow_until_ptrsub(varnode):
 from name_functions_from_called_function import FunctionRenamer
 fr = FunctionRenamer(currentProgram)
 # log_func = [i for i in fr.fm.getFunctions(1) if i.name == 'log_something_with_filename_and_functionname' ][0]
-log_func = [i for i in fr.fm.getFunctions(1) if i.name == 'log_something_else' ][0]
+# log_func = [i for i in fr.fm.getFunctions(1) if i.name == 'log_something_else' ][0]
+log_func = [i for i in fr.fm.getFunctions(1) if i.name == 'LogRDPGraphicsErrorStrings' ][0]
 
 incoming_calls = fr.get_callsites_for_function(log_func)
-param_index = 8
+param_index = 0
 additional_analysis_needed_funcs = set()
 for index, calling_func_node in enumerate(incoming_calls):
     current_function_name = calling_func_node.function.getName()
-    # print("looking at %s, index %d" % (current_function_name, index))
+    print("looking at %s, index %d" % (current_function_name, index))
     # calling_func_node = incoming_calls[1]
     hf = fr.get_high_function(calling_func_node.function)
     pcode_ops = list(hf.getPcodeOps())
@@ -224,19 +228,21 @@ for index, calling_func_node in enumerate(incoming_calls):
         param_def = follow_until_ptrsub(param_varnode)
     except:
         additional_analysis_needed_funcs.add(calling_func_node.function)
+        print("skipping")
+        continue
         # print("\n** %s likely requires manual analysis or decompilation fixups" % current_function_name)
     # print("param def '%s'" % str(param_def))
 
     # there is a weird roundabout way of looking stuff up here because there is a varnode being compared 
     # with an arbitrary stackpointer offset
-    is_stackpointer_offset = any([i for i in param_def.getInputs() if i.isRegister() and i.getOffset() == fr._stack_reg_offset])
+    # is_stackpointer_offset = any([i for i in param_def.getInputs() if i.isRegister() and i.getOffset() == fr._stack_reg_offset])
 
     copied_values = fr.follow_ptrsub_ref(pcode_ops, param_def)
     possible_function_names = [fr.read_string_at(i) for i in copied_values]
 
     best_function_name = fr.choose_best_function_name(possible_function_names)
     # print("best function name %s" % str(best_function_name))
-    if best_function_name is not None and current_function_name != best_function_name:
+    if best_function_name is not None and current_function_name != best_function_name and current_function_name.startswith("FUN_"):
         print("changing name from %s to %s" % (current_function_name, best_function_name))
         calling_func_node.function.setName(best_function_name, SourceType.USER_DEFINED)    
 
