@@ -103,6 +103,8 @@ class FunctionRenamer:
             func_address = func.getEntryPoint()
 
             call_ops = [i for i in pcode_ops if i.opcode == PcodeOpAST.CALL and i.getInput(0).getAddress() == func_address]
+            if len(call_ops) == 0:
+                continue
             call_op = call_ops[0]
             param_varnode = call_op.getInput(param_index+1)
             # check here if param is just the raw address. if not...
@@ -120,7 +122,8 @@ class FunctionRenamer:
             best_function_name = fr.choose_best_function_name(possible_function_names)
             # print("best function name %s" % best_function_name)
             # TODO: identify whether the `SourceType` of a function's name can be accessed so that names don't get overwritten
-            if best_function_name is not None and current_function_name != best_function_name:
+            if best_function_name is not None and current_function_name != best_function_name and \
+                current_function_name.startswith("FUN_"):  # so that other user defined function names don't get overwritten
                 print("changing name from %s to %s" % (current_function_name, best_function_name))
                 calling_func_node.function.setName(best_function_name, SourceType.USER_DEFINED)    
 
@@ -196,7 +199,8 @@ def follow_until_ptrsub(varnode):
 # from name_functions_from_called_function import *
 from name_functions_from_called_function import FunctionRenamer
 fr = FunctionRenamer(currentProgram)
-log_func = [i for i in fr.fm.getFunctions(1) if i.name == 'log_something_with_filename_and_functionname' ][0]
+# log_func = [i for i in fr.fm.getFunctions(1) if i.name == 'log_something_with_filename_and_functionname' ][0]
+log_func = [i for i in fr.fm.getFunctions(1) if i.name == 'log_something_else' ][0]
 
 incoming_calls = fr.get_callsites_for_function(log_func)
 param_index = 8
@@ -210,6 +214,8 @@ for index, calling_func_node in enumerate(incoming_calls):
     func_address = log_func.getEntryPoint()
 
     call_ops = [i for i in pcode_ops if i.opcode == PcodeOpAST.CALL and i.getInput(0).getAddress() == func_address]
+    if len(call_ops) == 0:
+        continue
     call_op = call_ops[0]
     param_varnode = call_op.getInput(param_index+1)
     # check here if param is just the raw address. if not...
