@@ -95,29 +95,38 @@ class FunctionRenamer:
 
     def rename_functions_by_function_call(self, func, param_index):
         incoming_calls = self.get_callsites_for_function(func)
+        additional_analysis_needed_funcs = set()
+        for calling_func_node in incoming_calls:
+            # calling_func_node = incoming_calls[1]
+            hf = self.get_high_function(calling_func_node.function)
+            pcode_ops = list(hf.getPcodeOps())
+            func_address = func.getEntryPoint()
 
-        calling_func_node = incoming_calls[1]
-        hf = self.get_high_function(calling_func_node.function)
-        pcode_ops = list(hf.getPcodeOps())
-        func_address = func.getEntryPoint()
+            call_ops = [i for i in pcode_ops if i.opcode == PcodeOpAST.CALL and i.getInput(0).getAddress() == func_address]
+            call_op = call_ops[0]
+            param_varnode = call_op.getInput(param_index+1)
+            # check here if param is just the raw address. if not...
+            try:
+                param_def = follow_until_ptrsub(param_varnode)
+            except:
+                additional_analysis_needed_funcs.add(calling_func_node.function)
+            # print("param def '%s'" % str(param_def))
+            # there is a weird roundabout way of looking stuff up here because there is a varnode being compared 
+            # with an arbitrary stackpointer offset
+            # is_stackpointer_offset = any([i for i in param_def.getInputs() if i.isRegister() and i.getOffset() == self._stack_reg_offset])
+            # for whatever reason, the created varnode here gets put into unique space, not stack space, 
+            copied_values = self.follow_ptrsub_ref(pcode_ops, param_def)
+            possible_function_names = [self.read_string_at(i) for i in copied_values]
+            best_function_name = fr.choose_best_function_name(possible_function_names)
+            # print("best function name %s" % best_function_name)
+            # TODO: identify whether the `SourceType` of a function's name can be accessed so that names don't get overwritten
+            if best_function_name is not None and current_function_name != best_function_name:
+                print("changing name from %s to %s" % (current_function_name, best_function_name))
+                calling_func_node.function.setName(best_function_name, SourceType.USER_DEFINED)    
 
-        call_ops = [i for i in pcode_ops if i.opcode == PcodeOpAST.CALL and i.getInput(0).getAddress() == func_address]
-        call_op = call_ops[0]
-        param_varnode = call_op.getInput(param_index+1)
-        # check here if param is just the raw address. if not...
-        param_def = follow_until_ptrsub(param_varnode)
-        # print("param def '%s'" % str(param_def))
-        # there is a weird roundabout way of looking stuff up here because there is a varnode being compared 
-        # with an arbitrary stackpointer offset
-        is_stackpointer_offset = any([i for i in param_def.getInputs() if i.isRegister() and i.getOffset() == self._stack_reg_offset])
-        # for whatever reason, the created varnode here gets put into unique space, not stack space, 
-        copied_values = self.follow_ptrsub_ref(pcode_ops, param_def)
-        possible_function_names = [self.read_string_at(i) for i in copied_values]
-        best_function_name = fr.choose_best_function_name(possible_function_names)
-        # print("best function name %s" % best_function_name)
-        if best_function_name is not None and current_function_name != best_function_name:
-            print("changing name from %s to %s" % (current_function_name, best_function_name))
-            calling_func_node.function.setName(best_function_name, SourceType.USER_DEFINED)    
+        for i in additional_analysis_needed_funcs:
+            print("\n** %s likely requires manual analysis or decompilation fixups" % i.getName())
+
 
     def read_string_at(self, address, maxsize=256):
         while maxsize > 0:
@@ -161,8 +170,8 @@ class FunctionRenamer:
         punctuation_set = set(string.punctuation)
         possible_function_names.sort(key=lambda a: (
             set(a).issubset(printable_set),            # lower priority of strings that aren't printable 
-            contains_path_markers(a),  # lower priority of strings that are file paths. 
             len([i for i in a if i in punctuation_set]),  # lower priority of strings with lots of punctuation
+            contains_path_markers(a),  # lower priority of strings that are file paths. 
         ))
         return possible_function_names[0]
 
@@ -191,6 +200,7 @@ log_func = [i for i in fr.fm.getFunctions(1) if i.name == 'log_something_with_fi
 
 incoming_calls = fr.get_callsites_for_function(log_func)
 param_index = 8
+additional_analysis_needed_funcs = set()
 for index, calling_func_node in enumerate(incoming_calls):
     current_function_name = calling_func_node.function.getName()
     # print("looking at %s, index %d" % (current_function_name, index))
@@ -207,7 +217,8 @@ for index, calling_func_node in enumerate(incoming_calls):
     try:
         param_def = follow_until_ptrsub(param_varnode)
     except:
-        print("\n** %s likely requires manual analysis or decompilation fixups" % current_function_name)
+        additional_analysis_needed_funcs.add(calling_func_node.function)
+        # print("\n** %s likely requires manual analysis or decompilation fixups" % current_function_name)
     # print("param def '%s'" % str(param_def))
 
     # there is a weird roundabout way of looking stuff up here because there is a varnode being compared 
@@ -222,6 +233,11 @@ for index, calling_func_node in enumerate(incoming_calls):
     if best_function_name is not None and current_function_name != best_function_name:
         print("changing name from %s to %s" % (current_function_name, best_function_name))
         calling_func_node.function.setName(best_function_name, SourceType.USER_DEFINED)    
+
+
+for i in additional_analysis_needed_funcs:
+    print("\n** %s likely requires manual analysis or decompilation fixups" % i.getName())
+
 """
 # find the string that is being pointed to 
 string_addresses = list(set([fr.addr_space.getAddress(i.getOffset()) for i in copied_values]))
