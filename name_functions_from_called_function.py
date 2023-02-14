@@ -96,29 +96,41 @@ class FunctionRenamer:
     def rename_functions_by_function_call(self, func, param_index):
         incoming_calls = self.get_callsites_for_function(func)
         additional_analysis_needed_funcs = set()
-        for calling_func_node in incoming_calls:
+        incoming_functions = set([i.function for i in incoming_calls])
+        for calling_func_node in incoming_functions:
+            current_function_name = calling_func_node.getName()
             # calling_func_node = incoming_calls[1]
-            hf = self.get_high_function(calling_func_node.function)
+            hf = self.get_high_function(calling_func_node)
             pcode_ops = list(hf.getPcodeOps())
             func_address = func.getEntryPoint()
 
             call_ops = [i for i in pcode_ops if i.opcode == PcodeOpAST.CALL and i.getInput(0).getAddress() == func_address]
             if len(call_ops) == 0:
+                print("no call found for %s" % current_function_name)
                 continue
-            call_op = call_ops[0]
-            param_varnode = call_op.getInput(param_index+1)
-            # check here if param is just the raw address. if not...
-            try:
-                param_def = follow_until_ptrsub(param_varnode)
-            except:
-                additional_analysis_needed_funcs.add(calling_func_node.function)
+            # call_op = call_ops[0]
+            copied_values = []
+            for call_op in call_ops:
+                param_varnode = call_op.getInput(param_index+1)
+                # check here if param is just the raw address. if not...
+                try:
+                    param_def = follow_until_ptrsub(param_varnode)
+                except Exception as err:
+                    # print(err)
+                    additional_analysis_needed_funcs.add(calling_func_node)
+                    continue
+                copied_values += self.follow_ptrsub_ref(pcode_ops, param_def)
+
+            if param_def is None:
+                print("skipping %s" % current_function_name)
                 continue
             # print("param def '%s'" % str(param_def))
             # there is a weird roundabout way of looking stuff up here because there is a varnode being compared 
             # with an arbitrary stackpointer offset
             # is_stackpointer_offset = any([i for i in param_def.getInputs() if i.isRegister() and i.getOffset() == self._stack_reg_offset])
             # for whatever reason, the created varnode here gets put into unique space, not stack space, 
-            copied_values = self.follow_ptrsub_ref(pcode_ops, param_def)
+            if len(copied_values) == 0:
+                print("copied values for %s was empty" % current_function_name)
             possible_function_names = [self.read_string_at(i) for i in copied_values]
             best_function_name = fr.choose_best_function_name(possible_function_names)
             # print("best function name %s" % best_function_name)
@@ -126,7 +138,7 @@ class FunctionRenamer:
             if best_function_name is not None and current_function_name != best_function_name and \
                 current_function_name.startswith("FUN_"):  # so that other user defined function names don't get overwritten
                 print("changing name from %s to %s" % (current_function_name, best_function_name))
-                calling_func_node.function.setName(best_function_name, SourceType.USER_DEFINED)    
+                calling_func_node.setName(best_function_name, SourceType.USER_DEFINED)    
 
         for i in additional_analysis_needed_funcs:
             print("\n** %s likely requires manual analysis or decompilation fixups" % i.getName())
@@ -187,7 +199,10 @@ def contains_path_markers(s):
 def follow_until_ptrsub(varnode, maxcount=20):
     param_def = varnode.getDef()
     while param_def.opcode not in [PcodeOpAST.PTRSUB, PcodeOpAST.COPY] and maxcount > 0:
-        varnode = param_def.getInput(1)
+        if param_def.opcode == PcodeOpAST.CAST:
+            varnode = param_def.getInput(0)    
+        else:
+            varnode = param_def.getInput(1)
         param_def = varnode.getDef()
         maxcount -= 1
         if param_def.opcode == PcodeOpAST.MULTIEQUAL:
@@ -202,63 +217,8 @@ def follow_until_ptrsub(varnode, maxcount=20):
 # from name_functions_from_called_function import *
 from name_functions_from_called_function import FunctionRenamer
 fr = FunctionRenamer(currentProgram)
-# log_func = [i for i in fr.fm.getFunctions(1) if i.name == 'log_something_with_filename_and_functionname' ][0]
+# 180001768
+log_func = [i for i in fr.fm.getFunctions(1) if i.name == 'log_something_with_filename_and_functionname' ][0]
 # log_func = [i for i in fr.fm.getFunctions(1) if i.name == 'log_something_else' ][0]
-log_func = [i for i in fr.fm.getFunctions(1) if i.name == 'LogRDPGraphicsErrorStrings' ][0]
-
-incoming_calls = fr.get_callsites_for_function(log_func)
-param_index = 0
-additional_analysis_needed_funcs = set()
-for index, calling_func_node in enumerate(incoming_calls):
-    current_function_name = calling_func_node.function.getName()
-    print("looking at %s, index %d" % (current_function_name, index))
-    # calling_func_node = incoming_calls[1]
-    hf = fr.get_high_function(calling_func_node.function)
-    pcode_ops = list(hf.getPcodeOps())
-    func_address = log_func.getEntryPoint()
-
-    call_ops = [i for i in pcode_ops if i.opcode == PcodeOpAST.CALL and i.getInput(0).getAddress() == func_address]
-    if len(call_ops) == 0:
-        continue
-    call_op = call_ops[0]
-    param_varnode = call_op.getInput(param_index+1)
-    # check here if param is just the raw address. if not...
-    # param_def = param_varnode.getDef()
-    try:
-        param_def = follow_until_ptrsub(param_varnode)
-    except:
-        additional_analysis_needed_funcs.add(calling_func_node.function)
-        print("skipping")
-        continue
-        # print("\n** %s likely requires manual analysis or decompilation fixups" % current_function_name)
-    # print("param def '%s'" % str(param_def))
-
-    # there is a weird roundabout way of looking stuff up here because there is a varnode being compared 
-    # with an arbitrary stackpointer offset
-    # is_stackpointer_offset = any([i for i in param_def.getInputs() if i.isRegister() and i.getOffset() == fr._stack_reg_offset])
-
-    copied_values = fr.follow_ptrsub_ref(pcode_ops, param_def)
-    possible_function_names = [fr.read_string_at(i) for i in copied_values]
-
-    best_function_name = fr.choose_best_function_name(possible_function_names)
-    # print("best function name %s" % str(best_function_name))
-    if best_function_name is not None and current_function_name != best_function_name and current_function_name.startswith("FUN_"):
-        print("changing name from %s to %s" % (current_function_name, best_function_name))
-        calling_func_node.function.setName(best_function_name, SourceType.USER_DEFINED)    
-
-
-for i in additional_analysis_needed_funcs:
-    print("\n** %s likely requires manual analysis or decompilation fixups" % i.getName())
-
-"""
-# find the string that is being pointed to 
-string_addresses = list(set([fr.addr_space.getAddress(i.getOffset()) for i in copied_values]))
-
-function_name = fr.read_string_at(string_addresses[0])
-
-print("changing name from %s to %s" % (calling_func_node.function.getName(), function_name))
-calling_func_node.function.setName(function_name, SourceType.USER_DEFINED)
-"""
-
-# forward search
-# indir = [i for i in pcode_ops if output in i.getInputs()][0]
+# log_func = [i for i in fr.fm.getFunctions(1) if i.name == 'LogRDPGraphicsErrorStrings' ][0]
+fr.rename_functions_by_function_call(log_func, 8)
