@@ -110,16 +110,17 @@ class FunctionRenamer:
                 continue
             # call_op = call_ops[0]
             copied_values = []
+            param_def = None
             for call_op in call_ops:
                 param_varnode = call_op.getInput(param_index+1)
                 # check here if param is just the raw address. if not...
                 try:
-                    param_def = follow_until_ptrsub(param_varnode)
+                    param_def = walk_pcode_until_handlable_op(param_varnode)
                 except Exception as err:
                     # print(err)
                     additional_analysis_needed_funcs.add(calling_func_node)
                     continue
-                copied_values += self.follow_ptrsub_ref(pcode_ops, param_def)
+                copied_values += self.get_pcode_op_copy_operand(pcode_ops, param_def)
 
             if param_def is None:
                 print("skipping %s" % current_function_name)
@@ -153,11 +154,12 @@ class FunctionRenamer:
             except:
                 maxsize -= 1
 
-    def follow_ptrsub_ref(self, pcode_ops, ptrsub_op):
-        non_register_varnode = [i for i in ptrsub_op.getInputs() if not i.isRegister()][0]
-        stack_offset = non_register_varnode.offset
+    def get_pcode_op_copy_operand(self, pcode_ops, ptrsub_op):
         if ptrsub_op.opcode == PcodeOpAST.COPY:
             return [self.addr_space.getAddress(ptrsub_op.getInput(0).getOffset())]
+
+        non_register_varnode = [i for i in ptrsub_op.getInputs() if not i.isRegister()][0]
+        stack_offset = non_register_varnode.offset
         stackspace_id = self.addr_fact.getStackSpace().spaceID
         copied_values = []
         for op in pcode_ops:
@@ -168,7 +170,6 @@ class FunctionRenamer:
                 continue
             if output.getSpace() != stackspace_id:
                 continue
-            
             if op.opcode not in [PcodeOpAST.COPY]:
                 continue
             # print("found one %s" % str(op))
@@ -191,13 +192,22 @@ class FunctionRenamer:
             contains_path_markers(a),  # lower priority of strings that are file paths. 
         ))
         return possible_function_names[0]
+    
+    def get_pcode_for_function(self, func):
+        if isinstance(func, str):
+            func = [i for i in self.fm.getFunctions(1) if i.getName() == func][0]
+        hf = self.get_high_function(func)
+        return list(hf.getPcodeOps())
 
 
 def contains_path_markers(s):
     return s.find("\\") != -1 or s.find("/") != -1
 
-def follow_until_ptrsub(varnode, maxcount=20):
+
+def walk_pcode_until_handlable_op(varnode, maxcount=20):
     param_def = varnode.getDef()
+    # handling much more than a PTRSUB or COPY will likely require an actually intelligent traversal
+    # of the pcode ast, if not emulation, as registers are assigned different types
     while param_def.opcode not in [PcodeOpAST.PTRSUB, PcodeOpAST.COPY] and maxcount > 0:
         if param_def.opcode == PcodeOpAST.CAST:
             varnode = param_def.getInput(0)    
@@ -210,15 +220,17 @@ def follow_until_ptrsub(varnode, maxcount=20):
     return param_def
 
 
-
-
+def main():
+    fr = FunctionRenamer(currentProgram)
+    funcname = askString("Which function's calls are you targeting? ", "")
+    prompt = "Which parameter of %s? Please note that the argument types must be set correctly for this parameter" % funcname
+    int1 = askInt(prompt, "enter parameter number")
+    func = [i for i in fr.fm.getFunctions(1) if i.name == funcname][0]
+    fr.rename_functions_by_function_call(func, int1)
 
 
 # from name_functions_from_called_function import *
-from name_functions_from_called_function import FunctionRenamer
-fr = FunctionRenamer(currentProgram)
-# 180001768
-log_func = [i for i in fr.fm.getFunctions(1) if i.name == 'log_something_with_filename_and_functionname' ][0]
-# log_func = [i for i in fr.fm.getFunctions(1) if i.name == 'log_something_else' ][0]
-# log_func = [i for i in fr.fm.getFunctions(1) if i.name == 'LogRDPGraphicsErrorStrings' ][0]
-fr.rename_functions_by_function_call(log_func, 8)
+# fr = FunctionRenamer(currentProgram)
+
+if __name__ == "__main__":
+    main()
