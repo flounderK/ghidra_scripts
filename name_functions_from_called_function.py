@@ -132,7 +132,7 @@ class FunctionRenamer:
             if len(copied_values) == 0:
                 print("copied values for %s was empty" % current_function_name)
             possible_function_names = [self.read_string_at(i) for i in copied_values]
-            best_function_name = fr.choose_best_function_name(possible_function_names)
+            best_function_name = self.choose_best_function_name(possible_function_names)
             # print("best function name %s" % best_function_name)
             # TODO: identify whether the `SourceType` of a function's name can be accessed so that names don't get overwritten
             if best_function_name is not None and current_function_name != best_function_name and \
@@ -214,8 +214,7 @@ def walk_pcode_until_handlable_op(varnode, maxcount=20):
             varnode = param_def.getInput(1)
         param_def = varnode.getDef()
         maxcount -= 1
-        if param_def.opcode == PcodeOpAST.MULTIEQUAL:
-            print("MULTIEQUAL op found, results might be incorrect")
+
     return param_def
 
 
