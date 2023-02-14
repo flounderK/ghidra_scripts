@@ -1,5 +1,4 @@
-# The script is meant to name functions across a file based on an argument 
-# passed into a called function
+# Auto-rename functions across a file based on the string passed to a specific function
 #@author Clifton Wolfe
 #@category C++
 
