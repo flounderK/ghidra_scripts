@@ -1,4 +1,8 @@
-# Auto-rename functions across a file based on the string passed to a specific function
+# Auto-rename functions across a file based on the string passed to a specific function. 
+# It should be noted that the script only works for functions whose names start with `FUN_`, 
+# to avoid overwriting user-named functions.
+# It should also be noted that the script will only work if the parameter type has been 
+# set correctly in the target function's signature. E.g. change `undefined8` to `char *`
 #@author Clifton Wolfe
 #@category C++
 
@@ -11,10 +15,6 @@ from ghidra.program.flatapi import FlatProgramAPI
 from ghidra.python import PythonScript
 from ghidra.app.plugin.core.navigation.locationreferences import ReferenceUtils
 from ghidra.program.util import FunctionSignatureFieldLocation
-from ghidra.program.model.pcode import VarnodeAST
-from ghidra.app.emulator import EmulatorHelper
-from ghidra.program.util import DefinedDataIterator
-from ghidra.app.util import XReferenceUtil
 from ghidra.program.model.symbol import SourceType
 from collections import namedtuple
 import string
