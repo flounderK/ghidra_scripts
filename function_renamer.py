@@ -226,17 +226,5 @@ def walk_pcode_until_handlable_op(varnode, maxcount=20):
     return param_def
 
 
-def main():
-    fr = FunctionRenamer(currentProgram)
-    funcname = askString("Which function's calls are you targeting? ", "")
-    prompt = "Which parameter of %s? Please note that the argument types must be set correctly for this parameter" % funcname
-    int1 = askInt(prompt, "enter parameter number")
-    func = [i for i in fr.fm.getFunctions(1) if i.name == funcname][0]
-    fr.rename_functions_by_function_call(func, int1)
-
-
-# from name_functions_from_called_function import *
+# from function_renamer import *
 # fr = FunctionRenamer(currentProgram)
-
-if __name__ == "__main__":
-    main()
