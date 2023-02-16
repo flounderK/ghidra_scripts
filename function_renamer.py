@@ -184,7 +184,7 @@ class FunctionRenamer:
             copied_values.append(string_address)
         return copied_values
     
-    def choose_best_function_name(self, function_name_candidates):
+    def sort_function_name_candidates(self, function_name_candidates, allow_unprintable=False):
         possible_function_names = [i for i in function_name_candidates if i is not None and i.find(" ") == -1]
         if len(possible_function_names) == 0:
             return None
@@ -192,20 +192,56 @@ class FunctionRenamer:
             return possible_function_names[0]
 
         printable_set = set(string.printable[:-5])
-        punctuation_set = set(string.punctuation)
+        punctuation_set = set(['[', '\\', ']', '^', '`', '!', '"', '#', "'", '+', '-', '/', ';', '{', '|', '=', '}', ])
+        possible_function_names = list(set(possible_function_names))
+        if allow_unprintable is False:
+            possible_function_names = [i for i in possible_function_names if set(i).issubset(printable_set)]
+        # punctuation_set = set(string.punctuation)
         possible_function_names.sort(key=lambda a: (
-            set(a).issubset(printable_set),            # lower priority of strings that aren't printable 
+            not(set(a).issubset(printable_set)),          # lower priority of strings that aren't printable by the most possible
+            not(len(a) >= 3),                             # strings that are really short are lowered by a large amount
             len([i for i in a if i in punctuation_set]),  # lower priority of strings with lots of punctuation
-            contains_path_markers(a),  # lower priority of strings that are file paths. 
+            a.find(' ') != -1,                            # spaces in the string are acceptable, but definitely aren't the 
+                                                          # function name 
+            contains_path_markers(a),                     # lower priority of strings that are file paths, but use them as as
+                                                          # a last resort
         ))
-        return possible_function_names[0]
+        # for i in range(10 if len(possible_function_names) > 10 else len(possible_function_names)):
+        #     print("%d: %s" % (i, possible_function_names[i]))
+        return possible_function_names
+    
+    def choose_best_function_name(self, function_name_candidates):
+        function_name_candidates = self.sort_function_name_candidates(function_name_candidates)
+        return function_name_candidates[0]
     
     def get_pcode_for_function(self, func):
         if isinstance(func, str):
             func = [i for i in self.fm.getFunctions(1) if i.getName() == func][0]
         hf = self.get_high_function(func)
         return list(hf.getPcodeOps())
+    
+    def get_data_accesses_from_function(self, func):
+        pcode_ops = self.get_pcode_for_function(func)
+        stackspace_id = self.addr_fact.getStackSpace().spaceID
+        varnodes = set(sum([[op.getOutput()] + list(op.getInputs()) for op in pcode_ops], []))
+        # filter out the majority of nodes that are known to be out
+        varnodes = [i for i in varnodes if i is not None and i.getSpace() != stackspace_id]
+        # get all of the offsets that are within current addressSpace
+        valid_data_addresses = []
+        for node in varnodes:
+            addr = self.addr_space.getAddress(node.getOffset())
+            if self.mem.contains(addr):
+                valid_data_addresses.append(addr)
+        return valid_data_addresses
 
+    def rename_function_from_accessed_strings_guess(self, func):
+        valid_data_addresses = self.get_data_accesses_from_function(func)
+        maybe_strings = [self.read_string_at(i) for i in valid_data_addresses]
+        maybe_strings = [i for i in maybe_strings if i != '']
+        chosen_function_name = self.choose_best_function_name(maybe_strings)
+        func.setName(chosen_function_name, SourceType.USER_DEFINED) 
+
+    
 
 def contains_path_markers(s):
     return s.find("\\") != -1 or s.find("/") != -1
