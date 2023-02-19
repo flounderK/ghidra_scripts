@@ -12,6 +12,7 @@ from ghidra.python import PythonScript
 from ghidra.app.plugin.core.navigation.locationreferences import ReferenceUtils
 from ghidra.program.util import FunctionSignatureFieldLocation
 from ghidra.program.model.symbol import SourceType
+from ghidra.program.model.data import StructureDataType, PointerDataType, FunctionDefinitionDataType
 from collections import namedtuple
 import string
 import re
@@ -23,13 +24,19 @@ from __main__ import *
 FoundPointer = namedtuple("FoundPointer", ["points_to", "location"])
 
 class FoundVTable:
-    def __init__(self, address, pointers=[]):
+    def __init__(self, address, pointers=None):
         self.address = address
-        self.pointers = pointers
+        if pointers is not None:
+            self.pointers = pointers
+        else:
+            self.pointers = []
 
     @property
     def size(self):
         return len(self.pointers)
+    
+    def __repr__(self):
+        return "FoundVTable(address=%s, size=%d)" % (str(self.address), self.size)
 
 
 class VTableFinder:
@@ -153,8 +160,9 @@ class VTableFinder:
                     found_pointers.append(new_found_ptr)
         return found_pointers
 
-    def find_vtables(self, address_rexp=None, additional_search_block_filter=None, newname="vtable", do_rename=True):
+    def find_vtables(self, address_rexp=None, additional_search_block_filter=None):
         found_pointers = self.find_pointer_runs(address_rexp, additional_search_block_filter)
+        found_pointers.sort(key=lambda a: a.location)
         memory_blocks = list(getMemoryBlocks()) 
         points_to_memory_blocks = [b for b in memory_blocks if b.name.startswith(".text")]
         # if no text section is found, fall back to a less efficient search that will search all of the initialized memory blocks
@@ -163,9 +171,10 @@ class VTableFinder:
             has_text_section = False
         else:
             has_text_section = True
-        found_vtables = []
+        found_vtables = set()
         current_vtable = []
-        last_found_vtable = None
+        # dummy vtable
+        last_found_vtable = FoundVTable(self._null)
         for found_pointer in found_pointers:
             any_valid_block_contains = False
             for m_block in points_to_memory_blocks:
@@ -180,18 +189,16 @@ class VTableFinder:
             # ghidra's analysis should automatically label locations that are referenced, so
             # skip any that don't have references
             if location_sym is None:
-                current_vtable.append(found_pointer.points_to)
+                last_found_vtable.pointers.append(found_pointer.points_to)
                 continue
-            found_vtables.append(last_found_vtable)
+            found_vtables.add(last_found_vtable)
             last_found_vtable = FoundVTable(found_pointer.location)
-            # swap out current_vtable to the list of pointers that is being built now
-            current_vtable = last_found_vtable.pointers
+            last_found_vtable.pointers.append(found_pointer.points_to)
+        
+        if last_found_vtable is not None and last_found_vtable not in found_vtables:
+            found_vtables.add(last_found_vtable)
             
-            current_name_str = location_sym.name
-            if re.search("vb?f?table", current_name_str) is None:
-                location_sym.setName(newname, SourceType.USER_DEFINED)
-
-        return found_vtables
+        return list(found_vtables)
 
 
 # def main():
@@ -199,3 +206,19 @@ vtf = VTableFinder(currentProgram)
 found_vtables = vtf.find_vtables()
 # pointer_runs = vtf.find_pointer_runs(additional_search_block_filter=lambda a: a.name == ".rdata")
 
+newname = "vtable"
+for found_vtable in found_vtables:
+    location_sym = getSymbolAt(found_vtable.address)
+    if location_sym is None:
+        continue
+    current_name_str = location_sym.name
+    if re.search("vb?f?table", current_name_str) is None:
+        location_sym.setName(newname, SourceType.USER_DEFINED)
+
+    new_struct = StructureDataType("vtable_%s" % str(found_vtable.address), found_vtable.size*vtf.ptr_size, vtf.dtm)
+    for i in range(found_vtable.size*vtf.ptr_size, vtf.ptr_size):
+        datatype = PointerDataType()
+        new_struct.replace(i, datatype, vtf.ptr_size)
+        # new_struct.add(datatype, vtf.ptr_size)
+
+    vtf.dtm.addDataType(new_struct, None)
