@@ -219,16 +219,16 @@ for found_vtable in found_vtables:
     location_sym = getSymbolAt(found_vtable.address)
     if location_sym is None:
         continue
-    current_name_str = location_sym.name
-    if re.search("vb?f?table", current_name_str) is None:
-        location_sym.setName(newname, SourceType.USER_DEFINED)
-
-    structure_name = "blah_%s" % str(found_vtable.address)
+    
+    structure_name = "vtable_%s" % str(found_vtable.address)
     # new_struct = StructureDataType("vtable_%s" % str(found_vtable.address), found_vtable.size*vtf.ptr_size, vtf.dtm)
     # this function uses the existing types of the data
     new_struct = struct_fact.createStructureDataType(currentProgram, found_vtable.address, vtf.ptr_size*found_vtable.size, structure_name, True)
     # cmd = CreateStructureCmd(new_struct, found_vtable.address)
     # tool.execute(cmd, currentProgram)
+    current_name_str = location_sym.name
+    if re.search("vb?f?table", current_name_str, re.IGNORECASE) is None:
+        location_sym.setName(newname, SourceType.USER_DEFINED)
     for i in range(found_vtable.size*vtf.ptr_size, vtf.ptr_size):
         datatype = PointerDataType()
         new_struct.replace(i, datatype, vtf.ptr_size)
