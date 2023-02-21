@@ -17,6 +17,7 @@ from ghidra.program.model.data import StructureFactory
 from ghidra.framework.plugintool import PluginTool
 from ghidra.app.cmd.data import CreateStructureCmd
 from ghidra.app.plugin.core.data import DataPlugin
+from ghidra.program.model.address import AddressSet
 from collections import namedtuple
 import string
 import re
@@ -205,6 +206,18 @@ class VTableFinder:
         return list(found_vtables)
 
 
+    def find_existing_refs(self, start_addr, end_addr):
+        references = []
+        addr_set = AddressSet(start_addr, end_addr)
+        it = self.refman.getReferenceSourceIterator(addr_set, True)
+        while it.hasNext():
+            addr = it.next()
+            refs = self.refman.getReferencesFrom(addr)
+            for r in refs:
+                references.append(r)
+        return references
+
+
 # def main():
 vtf = VTableFinder(currentProgram)
 found_vtables = vtf.find_vtables()
@@ -214,6 +227,7 @@ found_vtables = vtf.find_vtables()
 # plugin = DataPlugin()
 # tool = plugin.getTool()
 struct_fact = StructureFactory()
+listing = currentProgram.getListing()
 newname = "vtable"
 for found_vtable in found_vtables:
     location_sym = getSymbolAt(found_vtable.address)
@@ -221,17 +235,28 @@ for found_vtable in found_vtables:
         continue
     
     structure_name = "vtable_%s" % str(found_vtable.address)
+    vtable_byte_size = vtf.ptr_size*found_vtable.size
     # new_struct = StructureDataType("vtable_%s" % str(found_vtable.address), found_vtable.size*vtf.ptr_size, vtf.dtm)
     # this function uses the existing types of the data
-    new_struct = struct_fact.createStructureDataType(currentProgram, found_vtable.address, vtf.ptr_size*found_vtable.size, structure_name, True)
+    new_struct = struct_fact.createStructureDataType(currentProgram, found_vtable.address, vtable_byte_size, structure_name, True)
     # cmd = CreateStructureCmd(new_struct, found_vtable.address)
     # tool.execute(cmd, currentProgram)
+    start_addr = found_vtable.address
+    end_addr = vtf.addr_space.getAddress(start_addr.getOffset() + (vtable_byte_size-1))
+    # saved_refs = vtf.find_existing_refs(start_addr, end_addr)
+    listing.clearCodeUnits(start_addr, end_addr, False)
+    listing.createData(start_addr, new_struct, vtable_byte_size)
+
     current_name_str = location_sym.name
     if re.search("vb?f?table", current_name_str, re.IGNORECASE) is None:
         location_sym.setName(newname, SourceType.USER_DEFINED)
-    for i in range(found_vtable.size*vtf.ptr_size, vtf.ptr_size):
+    """
+    for i in range(found_vtable.size):
         datatype = PointerDataType()
-        new_struct.replace(i, datatype, vtf.ptr_size)
+        try:
+            new_struct.replace(i*vtf.ptr_size, datatype, vtf.ptr_size)
+        except:
+            pass
         # new_struct.add(datatype, vtf.ptr_size)
-
+    """
     vtf.dtm.addDataType(new_struct, None)
