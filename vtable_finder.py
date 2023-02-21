@@ -236,14 +236,28 @@ for found_vtable in found_vtables:
     
     structure_name = "vtable_%s" % str(found_vtable.address)
     vtable_byte_size = vtf.ptr_size*found_vtable.size
+    symbols_to_delete = []
+    start_addr_int = found_vtable.address.getOffset()
+    # create symbols at each address
+    for i, ptr in enumerate(found_vtable.pointers):
+        points_to_sym = getSymbolAt(ptr)
+        if points_to_sym is None:
+            continue
+        loc = vtf.addr_space.getAddress((i*vtf.ptr_size)+start_addr_int)
+        createSymbol(loc, points_to_sym.name, False, False, SourceType.USER_DEFINED)
+        symbols_to_delete.append((loc, points_to_sym.name))
+
     # new_struct = StructureDataType("vtable_%s" % str(found_vtable.address), found_vtable.size*vtf.ptr_size, vtf.dtm)
     # this function uses the existing types of the data
     new_struct = struct_fact.createStructureDataType(currentProgram, found_vtable.address, vtable_byte_size, structure_name, True)
+    for loc, name in symbols_to_delete:
+        removeSymbol(loc, name)
     # cmd = CreateStructureCmd(new_struct, found_vtable.address)
     # tool.execute(cmd, currentProgram)
     start_addr = found_vtable.address
     end_addr = vtf.addr_space.getAddress(start_addr.getOffset() + (vtable_byte_size-1))
     # saved_refs = vtf.find_existing_refs(start_addr, end_addr)
+    # area has to be clear to apply
     listing.clearCodeUnits(start_addr, end_addr, False)
     listing.createData(start_addr, new_struct, vtable_byte_size)
 
