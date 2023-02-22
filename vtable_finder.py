@@ -55,6 +55,8 @@ class VTableFinder:
         self.little_endian = not self.mem.isBigEndian()
         self.sym_tab = currentProgram.getSymbolTable()
         self._stack_reg_offset = currentProgram.getRegister("sp").getOffset()
+        self.struct_fact = StructureFactory()
+        self.listing = currentProgram.getListing()
 
         self.ptr_size = self.addr_space.getPointerSize()
         if self.ptr_size == 4:
@@ -217,60 +219,66 @@ class VTableFinder:
                 references.append(r)
         return references
 
+    def create_or_update_struct_from_found_vtable(self, found_vtable, newname="vtable"):
+        location_sym = getSymbolAt(found_vtable.address)
+        if location_sym is None:
+            return None
+        structure_name = "%s_%s" % (newname, str(found_vtable.address))
+        vtable_byte_size = self.ptr_size*found_vtable.size
+        symbols_to_delete = []
+        vtable_data = getDataAt(found_vtable.address)
+        if vtable_data.isStructure():
+            # update structure fields here
+            return
+        start_addr_int = found_vtable.address.getOffset()
+        # create symbols at each address to autofill struct field names
+        for i, ptr in enumerate(found_vtable.pointers):
+            points_to_sym = getSymbolAt(ptr)
+            if points_to_sym is None:
+                continue
+            loc = self.addr_space.getAddress((i*self.ptr_size)+start_addr_int)
+            createSymbol(loc, points_to_sym.name, False, False, SourceType.USER_DEFINED)
+            symbols_to_delete.append((loc, points_to_sym.name))
 
-# def main():
+        # new_struct = StructureDataType("vtable_%s" % str(found_vtable.address), found_vtable.size*self.ptr_size, self.dtm)
+        # this function uses the existing types of the data
+        new_struct = self.struct_fact.createStructureDataType(currentProgram, found_vtable.address, vtable_byte_size, structure_name, True)\
+        # delete the symbols that autofilled struct field names
+        for loc, name in symbols_to_delete:
+            removeSymbol(loc, name)
+        # cmd = CreateStructureCmd(new_struct, found_vtable.address)
+        start_addr = found_vtable.address
+        end_addr = self.addr_space.getAddress(start_addr.getOffset() + (vtable_byte_size-1))
+        # saved_refs = self.find_existing_refs(start_addr, end_addr)
+        # area has to be clear to apply
+        self.listing.clearCodeUnits(start_addr, end_addr, False)
+        self.listing.createData(start_addr, new_struct, vtable_byte_size)
+
+        current_name_str = location_sym.name
+        if re.search("vb?f?table", current_name_str, re.IGNORECASE) is None:
+            location_sym.setName(newname, SourceType.USER_DEFINED)
+        """
+        for i in range(found_vtable.size):
+            datatype = PointerDataType()
+            try:
+                new_struct.replace(i*self.ptr_size, datatype, self.ptr_size)
+            except:
+                pass
+            # new_struct.add(datatype, self.ptr_size)
+        """
+        self.dtm.addDataType(new_struct, None)
+
+    def apply_vtables_to_program(self):
+        found_vtables = vtf.find_vtables()
+
+        for found_vtable in found_vtables:
+            location_sym = getSymbolAt(found_vtable.address)
+            if location_sym is None:
+                continue
+            
+            self.create_or_update_struct_from_found_vtable(found_vtable)
+
+
 vtf = VTableFinder(currentProgram)
 found_vtables = vtf.find_vtables()
-# pointer_runs = vtf.find_pointer_runs(additional_search_block_filter=lambda a: a.name == ".rdata")
-
-# plugintool = PluginTool()
-# plugin = DataPlugin()
-# tool = plugin.getTool()
-struct_fact = StructureFactory()
-listing = currentProgram.getListing()
-newname = "vtable"
-for found_vtable in found_vtables:
-    location_sym = getSymbolAt(found_vtable.address)
-    if location_sym is None:
-        continue
-    
-    structure_name = "vtable_%s" % str(found_vtable.address)
-    vtable_byte_size = vtf.ptr_size*found_vtable.size
-    symbols_to_delete = []
-    start_addr_int = found_vtable.address.getOffset()
-    # create symbols at each address
-    for i, ptr in enumerate(found_vtable.pointers):
-        points_to_sym = getSymbolAt(ptr)
-        if points_to_sym is None:
-            continue
-        loc = vtf.addr_space.getAddress((i*vtf.ptr_size)+start_addr_int)
-        createSymbol(loc, points_to_sym.name, False, False, SourceType.USER_DEFINED)
-        symbols_to_delete.append((loc, points_to_sym.name))
-
-    # new_struct = StructureDataType("vtable_%s" % str(found_vtable.address), found_vtable.size*vtf.ptr_size, vtf.dtm)
-    # this function uses the existing types of the data
-    new_struct = struct_fact.createStructureDataType(currentProgram, found_vtable.address, vtable_byte_size, structure_name, True)
-    for loc, name in symbols_to_delete:
-        removeSymbol(loc, name)
-    # cmd = CreateStructureCmd(new_struct, found_vtable.address)
-    # tool.execute(cmd, currentProgram)
-    start_addr = found_vtable.address
-    end_addr = vtf.addr_space.getAddress(start_addr.getOffset() + (vtable_byte_size-1))
-    # saved_refs = vtf.find_existing_refs(start_addr, end_addr)
-    # area has to be clear to apply
-    listing.clearCodeUnits(start_addr, end_addr, False)
-    listing.createData(start_addr, new_struct, vtable_byte_size)
-
-    current_name_str = location_sym.name
-    if re.search("vb?f?table", current_name_str, re.IGNORECASE) is None:
-        location_sym.setName(newname, SourceType.USER_DEFINED)
-    """
-    for i in range(found_vtable.size):
-        datatype = PointerDataType()
-        try:
-            new_struct.replace(i*vtf.ptr_size, datatype, vtf.ptr_size)
-        except:
-            pass
-        # new_struct.add(datatype, vtf.ptr_size)
-    """
-    vtf.dtm.addDataType(new_struct, None)
+vtf.apply_vtables_to_program()
