@@ -139,8 +139,8 @@ class VTableFinder:
 
     def find_pointer_runs(self, address_rexp=None, additional_search_block_filter=None):
         if address_rexp is None:
-            minimum_addr, maximum_addr = vtf.get_memory_bounds()
-            address_rexp = vtf.generate_address_range_rexp(minimum_addr, maximum_addr)
+            minimum_addr, maximum_addr = self.get_memory_bounds()
+            address_rexp = self.generate_address_range_rexp(minimum_addr, maximum_addr)
         
         found_pointers = []
         memory_blocks = list(getMemoryBlocks()) 
@@ -269,7 +269,7 @@ class VTableFinder:
         self.dtm.addDataType(new_struct, None)
 
     def apply_vtables_to_program(self):
-        found_vtables = vtf.find_vtables()
+        found_vtables = self.find_vtables()
 
         for found_vtable in found_vtables:
             location_sym = getSymbolAt(found_vtable.address)
@@ -280,5 +280,4 @@ class VTableFinder:
 
 
 vtf = VTableFinder(currentProgram)
-found_vtables = vtf.find_vtables()
 vtf.apply_vtables_to_program()
