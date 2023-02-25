@@ -18,6 +18,7 @@ from ghidra.framework.plugintool import PluginTool
 from ghidra.app.cmd.data import CreateStructureCmd
 from ghidra.app.plugin.core.data import DataPlugin
 from ghidra.program.model.address import AddressSet
+from ghidra.program.model.data import DataTypeConflictHandler
 from collections import namedtuple
 import string
 import re
@@ -35,6 +36,7 @@ class FoundVTable:
             self.pointers = pointers
         else:
             self.pointers = []
+        self.associated_struct = None
 
     @property
     def size(self):
@@ -87,6 +89,7 @@ class VTableFinder:
         self._ifc = DecompInterface()
         self._ifc.setOptions(self._decomp_options)
         self.refman = currentProgram.getReferenceManager()
+        self.found_vtables = []
 
     def generate_address_range_rexp(self, minimum_addr, maximum_addr):
         address_pattern = self.generate_address_range_pattern(minimum_addr, maximum_addr)
@@ -204,7 +207,7 @@ class VTableFinder:
         
         if last_found_vtable is not None and last_found_vtable not in found_vtables:
             found_vtables.add(last_found_vtable)
-            
+        self.found_vtables = list(found_vtables)
         return list(found_vtables)
 
 
@@ -228,6 +231,8 @@ class VTableFinder:
         symbols_to_delete = []
         vtable_data = getDataAt(found_vtable.address)
         if vtable_data.isStructure():
+            found_vtable.associated_struct = vtable_data.dataType
+            self.update_associated_struct(found_vtable)
             # update structure fields here
             return
         start_addr_int = found_vtable.address.getOffset()
@@ -242,7 +247,7 @@ class VTableFinder:
 
         # new_struct = StructureDataType("vtable_%s" % str(found_vtable.address), found_vtable.size*self.ptr_size, self.dtm)
         # this function uses the existing types of the data
-        new_struct = self.struct_fact.createStructureDataType(currentProgram, found_vtable.address, vtable_byte_size, structure_name, True)\
+        new_struct = self.struct_fact.createStructureDataType(currentProgram, found_vtable.address, vtable_byte_size, structure_name, True)
         # delete the symbols that autofilled struct field names
         for loc, name in symbols_to_delete:
             removeSymbol(loc, name)
@@ -267,6 +272,7 @@ class VTableFinder:
             # new_struct.add(datatype, self.ptr_size)
         """
         self.dtm.addDataType(new_struct, None)
+        found_vtable.associated_struct = new_struct
 
     def apply_vtables_to_program(self):
         found_vtables = self.find_vtables()
@@ -277,6 +283,29 @@ class VTableFinder:
                 continue
             
             self.create_or_update_struct_from_found_vtable(found_vtable)
+    
+    def update_associated_struct(self, found_vtable):
+        # get associated struct if it hasn't been assigned yet
+        if found_vtable.associated_struct is None:
+            vtable_data = getDataAt(found_vtable.address)
+            if not vtable_data.isStructure():
+                return
+            found_vtable.associated_struct = vtable_data.dataType
+        
+        associated_struct = found_vtable.associated_struct
+        for ptr, component in zip(found_vtable.pointers, associated_struct.getComponents()):
+            points_to_sym = getSymbolAt(ptr)
+            if points_to_sym is None:
+                continue
+            current_field_name = component.getFieldName()
+            current_sym_name = points_to_sym.getName()
+            if current_sym_name == current_field_name:
+                continue
+            component.setFieldName(current_sym_name)
+        # replace the old type with the new modified type
+        self.dtm.addDataType(associated_struct, DataTypeConflictHandler.REPLACE_HANDLER)
+
+
 
 
 vtf = VTableFinder(currentProgram)
