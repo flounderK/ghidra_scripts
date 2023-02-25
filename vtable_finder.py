@@ -19,7 +19,8 @@ from ghidra.app.cmd.data import CreateStructureCmd
 from ghidra.app.plugin.core.data import DataPlugin
 from ghidra.program.model.address import AddressSet
 from ghidra.program.model.data import DataTypeConflictHandler
-from collections import namedtuple
+from ghidra.util.exception import DuplicateNameException
+from collections import namedtuple, defaultdict
 import string
 import re
 import struct
@@ -222,7 +223,7 @@ class VTableFinder:
                 references.append(r)
         return references
 
-    def create_or_update_struct_from_found_vtable(self, found_vtable, newname="vtable"):
+    def create_or_update_struct_from_found_vtable(self, found_vtable, newname="vtable", function_definition_datatype=False):
         location_sym = getSymbolAt(found_vtable.address)
         if location_sym is None:
             return None
@@ -232,7 +233,7 @@ class VTableFinder:
         vtable_data = getDataAt(found_vtable.address)
         if vtable_data.isStructure():
             found_vtable.associated_struct = vtable_data.dataType
-            self.update_associated_struct(found_vtable)
+            self.update_associated_struct(found_vtable,function_definition_datatype)
             # update structure fields here
             return
         start_addr_int = found_vtable.address.getOffset()
@@ -273,8 +274,9 @@ class VTableFinder:
         """
         self.dtm.addDataType(new_struct, None)
         found_vtable.associated_struct = new_struct
+        self.update_associated_struct(found_vtable, function_definition_datatype)
 
-    def apply_vtables_to_program(self):
+    def apply_vtables_to_program(self, function_definition_datatype=False):
         found_vtables = self.find_vtables()
 
         for found_vtable in found_vtables:
@@ -282,9 +284,9 @@ class VTableFinder:
             if location_sym is None:
                 continue
             
-            self.create_or_update_struct_from_found_vtable(found_vtable)
+            self.create_or_update_struct_from_found_vtable(found_vtable, function_definition_datatype=function_definition_datatype)
     
-    def update_associated_struct(self, found_vtable):
+    def update_associated_struct(self, found_vtable, function_defininition_datatype=False):
         # get associated struct if it hasn't been assigned yet
         if found_vtable.associated_struct is None:
             vtable_data = getDataAt(found_vtable.address)
@@ -292,6 +294,7 @@ class VTableFinder:
                 return
             found_vtable.associated_struct = vtable_data.dataType
         
+        field_name_counts = defaultdict(lambda: 0)
         associated_struct = found_vtable.associated_struct
         for ptr, component in zip(found_vtable.pointers, associated_struct.getComponents()):
             points_to_sym = getSymbolAt(ptr)
@@ -299,12 +302,34 @@ class VTableFinder:
                 continue
             current_field_name = component.getFieldName()
             current_sym_name = points_to_sym.getName()
+            func = self.listing.getFunctionAt(ptr)
+            if func is not None and function_defininition_datatype is True:
+                sig = func.getSignature()
+                func_def = FunctionDefinitionDataType(sig)
+                component.setDataType(func_def)
+            else:
+                component.setDataType(PointerDataType())
             if current_sym_name == current_field_name:
                 continue
-            component.setFieldName(current_sym_name)
+            
+            try:
+                component.setFieldName(current_sym_name)
+            except DuplicateNameException:
+                count = field_name_counts[current_sym_name]
+                component.setFieldName("%s_%d" % (current_sym_name, count))
+            field_name_counts[current_sym_name] += 1
+
         # replace the old type with the new modified type
         self.dtm.addDataType(associated_struct, DataTypeConflictHandler.REPLACE_HANDLER)
 
+    def get_high_function(self, func, timeout=60):
+        """
+        Get a HighFunction for a given function
+        """
+        self._ifc.openProgram(func.getProgram())
+        res = self._ifc.decompileFunction(func, timeout, self._monitor)
+        high_func = res.getHighFunction()
+        return high_func
 
 
 
