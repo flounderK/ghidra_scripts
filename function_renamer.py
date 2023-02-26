@@ -185,17 +185,22 @@ class FunctionRenamer:
         return copied_values
     
     def sort_function_name_candidates(self, function_name_candidates, allow_unprintable=False):
+        """
+        Return a sorted list of function 
+        """
         possible_function_names = [i for i in function_name_candidates if i is not None and i.find(" ") == -1]
         if len(possible_function_names) == 0:
             return None
         if len(possible_function_names) == 1:
-            return possible_function_names[0]
+            # list is already "sorted", only one option
+            return possible_function_names
 
         printable_set = set(string.printable[:-5])
         punctuation_set = set(['[', '\\', ']', '^', '`', '!', '"', '#', "'", '+', '-', '/', ';', '{', '|', '=', '}', ])
         possible_function_names = list(set(possible_function_names))
         if allow_unprintable is False:
-            possible_function_names = [i for i in possible_function_names if set(i).issubset(printable_set)]
+            possible_function_names = [i for i in possible_function_names if set(i).issubset(printable_set)]   
+        possible_function_names = [i for i in possible_function_names if len(i) >= 3]
         # punctuation_set = set(string.punctuation)
         possible_function_names.sort(key=lambda a: (
             not(set(a).issubset(printable_set)),          # lower priority of strings that aren't printable by the most possible
@@ -206,6 +211,7 @@ class FunctionRenamer:
             contains_path_markers(a),                     # lower priority of strings that are file paths, but use them as as
                                                           # a last resort
         ))
+        # DEBUG HACK
         # for i in range(10 if len(possible_function_names) > 10 else len(possible_function_names)):
         #     print("%d: %s" % (i, possible_function_names[i]))
         return possible_function_names
