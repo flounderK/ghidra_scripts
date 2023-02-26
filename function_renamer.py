@@ -100,7 +100,7 @@ class FunctionRenamer:
     def get_previous_var_stack_offset_for_calling_function(self):
         pass
 
-    def rename_functions_by_function_call(self, func, param_index):
+    def rename_functions_by_function_call(self, func, param_index, function_name_filter=None):
         incoming_calls = self.get_callsites_for_function(func)
         additional_analysis_needed_funcs = set()
         incoming_functions = set([i.function for i in incoming_calls])
@@ -140,7 +140,10 @@ class FunctionRenamer:
             if len(copied_values) == 0:
                 print("copied values for %s was empty" % current_function_name)
             possible_function_names = [self.read_string_at(i) for i in copied_values]
-            best_function_name = self.choose_best_function_name(possible_function_names)
+            if function_name_filter is not None:
+                best_function_name = function_name_filter(possible_function_names)
+            else:
+                best_function_name = self.choose_best_function_name(possible_function_names)
             # print("best function name %s" % best_function_name)
             # TODO: identify whether the `SourceType` of a function's name can be accessed so that names don't get overwritten
             if best_function_name is not None and current_function_name != best_function_name and \
