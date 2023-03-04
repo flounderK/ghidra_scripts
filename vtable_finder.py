@@ -91,6 +91,10 @@ class VTableFinder:
         self._ifc.setOptions(self._decomp_options)
         self.refman = currentProgram.getReferenceManager()
         self.found_vtables = []
+        self.minimum_addr_int, self.maximum_addr_int = self.get_memory_bounds()
+        self.minimum_addr_addr = toAddr(self.minimum_addr_int)
+        self.maximum_addr_addr = toAddr(self.maximum_addr_int)
+        
 
     def generate_address_range_rexp(self, minimum_addr, maximum_addr):
         address_pattern = self.generate_address_range_pattern(minimum_addr, maximum_addr)
@@ -184,6 +188,7 @@ class VTableFinder:
             has_text_section = True
         found_vtables = set()
         current_vtable = []
+        last_location_addr = None
         # dummy vtable
         last_found_vtable = FoundVTable(self._null)
         for found_pointer in found_pointers:
@@ -196,14 +201,34 @@ class VTableFinder:
             if any_valid_block_contains is False:
                 continue
             
-            location_sym = getSymbolAt(found_pointer.location)
-            # ghidra's analysis should automatically label locations that are referenced, so
-            # skip any that don't have references
-            if location_sym is None:
+            location_refs = list(getReferencesTo(found_pointer.location))
+            is_next_linear_pointer = True
+            if last_location_addr is not None and not last_location_addr.add(self.ptr_size).equals(found_pointer.location):
+                is_next_linear_pointer = False
+
+            maybe_new_vtable_loc = found_pointer.location
+            # only keep building a vtable if nothing is inbetween this pointer and the previous one.
+            if len(location_refs) == 0 and is_next_linear_pointer is True:
+                last_location_addr = found_pointer.location
                 last_found_vtable.pointers.append(found_pointer.points_to)
                 continue
+            elif len(location_refs) == 0 and is_next_linear_pointer is False:
+                prev_referenced_addr = self.get_previous_referenced_address(found_pointer.location)
+                if prev_referenced_addr is not None and prev_referenced_addr.equals(last_found_vtable.address):
+                    last_location_addr = found_pointer.location
+                    last_found_vtable.pointers.append(found_pointer.points_to)
+                    continue
+                elif prev_referenced_addr is not None:
+                    # if it gets to this point, there is some data between this pointer and the start of the last vtable that 
+                    # is independently referenced. since this location had no references, it should be considered a child of 
+                    # the previously referenced data, not the last vtable (however far back that might be)
+                    maybe_new_vtable_loc = prev_referenced_addr
+
+            
+            # there were references to this address or there was no established previous data, So start a new vtable
             found_vtables.add(last_found_vtable)
-            last_found_vtable = FoundVTable(found_pointer.location)
+            last_found_vtable = FoundVTable(maybe_new_vtable_loc)
+            last_location_addr = found_pointer.location
             last_found_vtable.pointers.append(found_pointer.points_to)
         
         if last_found_vtable is not None and last_found_vtable not in found_vtables:
@@ -222,6 +247,14 @@ class VTableFinder:
             for r in refs:
                 references.append(r)
         return references
+    
+    def get_previous_referenced_address(self, addr, max_look_back=64):
+        while addr.compareTo(self.minimum_addr_addr) >= 0:
+            addr = addr.subtract(self.ptr_size)
+            if len(getReferencesTo(addr)) > 0:
+                return addr
+        return None
+
 
     def create_or_update_struct_from_found_vtable(self, found_vtable, newname="vtable", function_definition_datatype=False):
         location_sym = getSymbolAt(found_vtable.address)
@@ -231,7 +264,7 @@ class VTableFinder:
         vtable_byte_size = self.ptr_size*found_vtable.size
         symbols_to_delete = []
         vtable_data = getDataAt(found_vtable.address)
-        if vtable_data.isStructure():
+        if vtable_data is not None and vtable_data.isStructure():
             found_vtable.associated_struct = vtable_data.dataType
             self.update_associated_struct(found_vtable,function_definition_datatype)
             # update structure fields here
@@ -335,3 +368,21 @@ class VTableFinder:
 
 vtf = VTableFinder(currentProgram)
 vtf.apply_vtables_to_program()
+
+"""
+function_to_vtable_refs = defaultdict(set)
+vtable_refs_from_funcs = defaultdict(set)
+
+for found_vtable in vtf.found_vtables:
+    refs = list(getReferencesTo(found_vtable.address))
+    referring_functions = list(set([vtf.listing.getFunctionContaining(r.fromAddress) for r in refs]))
+    for func in referring_functions:
+        function_to_vtable_refs[func].add(found_vtable)
+        vtable_refs_from_funcs[found_vtable].add(func)
+
+# put things back into lists for easier indexing
+function_to_vtable_refs = {k: list(v) for k, v in function_to_vtable_refs.items()}
+vtable_refs_from_funcs = {k: list(v) for k, v in vtable_refs_from_funcs.items()}
+
+# functions that refer to a single vtable and where that vtable 
+"""
