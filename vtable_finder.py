@@ -15,6 +15,7 @@ from ghidra.program.util import FunctionSignatureFieldLocation
 from ghidra.program.model.symbol import SourceType
 from ghidra.program.model.data import StructureDataType, PointerDataType, FunctionDefinitionDataType, UnsignedLongLongDataType
 from ghidra.program.model.data import StructureFactory
+from ghidra.program.database.data import StructureDB
 from ghidra.program.model.data import VoidDataType
 from ghidra.framework.plugintool import PluginTool
 from ghidra.app.cmd.data import CreateStructureCmd
@@ -98,6 +99,9 @@ class VTableFinder:
         self.minimum_addr_int, self.maximum_addr_int = self.get_memory_bounds()
         self.minimum_addr_addr = toAddr(self.minimum_addr_int)
         self.maximum_addr_addr = toAddr(self.maximum_addr_int)
+        self.function_to_vtable_refs = {}
+        self.vtable_refs_from_funcs = {}
+        self.created_class_structs = []
         
 
     def generate_address_range_rexp(self, minimum_addr, maximum_addr):
@@ -383,7 +387,8 @@ class VTableFinder:
         maybe_this = prot.getParam(thisptr_param_index)
         return maybe_this.getDataType()
 
-    def create_structs_for_classes(self, thisptr_ind=0, rename_funcs=True):
+
+    def find_vtable_references(self):
         function_to_vtable_refs = defaultdict(set)
         vtable_refs_from_funcs = defaultdict(set)
         
@@ -398,23 +403,26 @@ class VTableFinder:
                 vtable_refs_from_funcs[found_vtable].add(func)
 
         # put things back into lists for easier indexing
-        function_to_vtable_refs = {k: list(v) for k, v in function_to_vtable_refs.items()}
-        vtable_refs_from_funcs = {k: list(v) for k, v in vtable_refs_from_funcs.items()}
+        self.function_to_vtable_refs = {k: list(v) for k, v in function_to_vtable_refs.items()}
+        self.vtable_refs_from_funcs = {k: list(v) for k, v in vtable_refs_from_funcs.items()}
 
+    def create_structs_for_classes(self, thisptr_ind=0, rename_funcs=True):
+        self.find_vtable_references()
+        print("\ndone getting references")
         # vtables that are only used by one or two functions are typically either abstract or impl vtables for that class or vtables
         # for embedded classes. tne one or two functions that reference them are typically either constructors or destructors. Identifying
         # and labeling these functions and automatically creating the class structures for them cleans up the vast majority of the 
         # code related to 
-
         all_vtable_structs = [i.associated_struct for i in self.found_vtables]
-        for found_vtable, functions in vtable_refs_from_funcs.items():
+        print("\nIdentifying constructors and destructors")
+        for found_vtable, functions in self.vtable_refs_from_funcs.items():
             # limiting this to vtables that only have a destructor and constructor for now
             # TODO: maybe use pcode to identify which functions are constructor/destructor
             if len(functions) != 2:
                 continue
             
             # use the same struct across all of the functions for a specific vtable
-            new_struct = None
+            class_struct = None
             for func in functions:
                 high_func = self.get_high_function(func)
                 prot = high_func.getFunctionPrototype()
@@ -431,7 +439,9 @@ class VTableFinder:
                 while isinstance(dt, PointerDataType):
                     dt = dt.dataType
 
-                if dt not in all_vtable_structs:
+                if dt not in all_vtable_structs and isinstance(dt, StructureDB):
+                    class_struct = dt
+                    self.created_class_structs.append(class_struct)
                     continue
 
                 # reset param type to `pointer` so that everything in the struct won't be interpreted as a vtable* as an artifact
@@ -443,21 +453,23 @@ class VTableFinder:
                 param = prot.getParam(thisptr_ind)
                 param_high_var = param.getHighVariable()
                 
-                if new_struct is None:
+                if class_struct is None:
                     state = getState()
                     # location = state.getCurrentLocation()
                     location = BytesFieldLocation(currentProgram, func.getEntryPoint())
                     tool = state.getTool()
                     # NOTE: this might only work with the gui
                     fos = FillOutStructureCmd(currentProgram, location, tool)
-                    new_struct = fos.processStructure(param_high_var, func)
+                    print("creating class struct for %s" % func.name)
+                    class_struct = fos.processStructure(param_high_var, func)
+                    self.created_class_structs.append(class_struct)
                 try:
-                    HighFunctionDBUtil.updateDBVariable(param, param.name, new_struct, SourceType.USER_DEFINED)
+                    HighFunctionDBUtil.updateDBVariable(param, param.name, PointerDataType(class_struct), SourceType.USER_DEFINED)
                 except:
-                    pass
+                    print("failed to assign struct pointer for %s" % func.name)
                 if is_constructor is True:
                     if func.name.startswith('FUN_') and rename_funcs is True:
-                        func.setName("%s_constructor" % new_struct.name, SourceType.USER_DEFINED)
+                        func.setName("%s_constructor" % class_struct.name, SourceType.USER_DEFINED)
                     # get an updated version of the high function again
                     high_func = self.get_high_function(func)
                     HighFunctionDBUtil.commitReturnToDatabase(high_func, SourceType.USER_DEFINED)
@@ -466,20 +478,41 @@ class VTableFinder:
                     # HighFunctionDBUtil.updateDBVariable(ret_type_high_var, ret_type_high_var.name, new_struct, SourceType.USER_DEFINED)
                 else:
                     if func.name.startswith('FUN_') and rename_funcs is True:
-                        func.setName("%s_destructor" % new_struct.name, SourceType.USER_DEFINED)
+                        func.setName("%s_destructor" % class_struct.name, SourceType.USER_DEFINED)
 
+
+find_and_apply_vtables = True
+identify_and_create_class_structures = True
+
+if __name__ == "__main__" and not isRunningHeadless():
+    find_and_apply_vtables = False
+    identify_and_create_class_structures = False
+    choices = askChoices("Vtable Finder", "Select VTable analysis options", 
+                        ["find_and_apply_vtables", "identify_and_create_class_structures"], 
+                        ["Find vtables and apply them to current program", 
+                         "Identify and create class structures"])
+    for choice in choices:
+        if choice.find("find_and_apply_vtables") != -1:
+            find_and_apply_vtables = True
+        elif choice.find("identify_and_create_class_structures") != -1:
+            identify_and_create_class_structures = True
+        
 
 vtf = VTableFinder(currentProgram)
-print("finding vtables")
-vtf.apply_vtables_to_program()
-try:
-    # TODO: give user the option to use this, but don't force it
-    print("creating class structures")
-    vtf.create_structs_for_classes()
-    # and update all of the struct field names for vtables
-    vtf.apply_vtables_to_program()
-except:
-    print("something went wrong with creating structures for classes")
 
+if find_and_apply_vtables is True:
+    print("\nfinding vtables")
+    vtf.apply_vtables_to_program()
+
+try:
+    if identify_and_create_class_structures is True:
+        print("\ncreating class structures")
+        vtf.create_structs_for_classes()
+        # and update all of the struct field names for vtables
+        vtf.apply_vtables_to_program()
+except:
+    print("\nsomething went wrong with creating structures for classes")
+
+print("\nvtable finder done")
 # func.signature.replaceArgument(thisptr_ind, "param_%d" % (thisptr_ind+1), UnsignedLongLongDataType(), "", SourceType.USER_DEFINED)
 # vtf.dtm.addDataType(func.signature, DataTypeConflictHandler.REPLACE_HANDLER)
