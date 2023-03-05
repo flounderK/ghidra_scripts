@@ -10,16 +10,20 @@ from ghidra.program.model.pcode import PcodeOpAST
 from ghidra.program.flatapi import FlatProgramAPI
 from ghidra.python import PythonScript
 from ghidra.app.plugin.core.navigation.locationreferences import ReferenceUtils
+from ghidra.app.plugin.core.decompile.actions import FillOutStructureCmd
 from ghidra.program.util import FunctionSignatureFieldLocation
 from ghidra.program.model.symbol import SourceType
-from ghidra.program.model.data import StructureDataType, PointerDataType, FunctionDefinitionDataType
+from ghidra.program.model.data import StructureDataType, PointerDataType, FunctionDefinitionDataType, UnsignedLongLongDataType
 from ghidra.program.model.data import StructureFactory
+from ghidra.program.model.data import VoidDataType
 from ghidra.framework.plugintool import PluginTool
 from ghidra.app.cmd.data import CreateStructureCmd
 from ghidra.app.plugin.core.data import DataPlugin
 from ghidra.program.model.address import AddressSet
 from ghidra.program.model.data import DataTypeConflictHandler
 from ghidra.util.exception import DuplicateNameException
+from ghidra.program.model.pcode import HighFunctionDBUtil
+from ghidra.program.util import BytesFieldLocation
 from collections import namedtuple, defaultdict
 import string
 import re
@@ -205,7 +209,8 @@ class VTableFinder:
             is_next_linear_pointer = True
             if last_location_addr is not None and not last_location_addr.add(self.ptr_size).equals(found_pointer.location):
                 is_next_linear_pointer = False
-
+            # TODO: might need to rework this so that weirder vtables with lots of null pointers in them are
+            # TODO: handled better
             maybe_new_vtable_loc = found_pointer.location
             # only keep building a vtable if nothing is inbetween this pointer and the previous one.
             if len(location_refs) == 0 and is_next_linear_pointer is True:
@@ -364,25 +369,117 @@ class VTableFinder:
         high_func = res.getHighFunction()
         return high_func
 
+    def get_datatype_of_thisptr(self, func, thisptr_param_index=0):
+        """
+        Get the datatype of a Function's `this` pointer.
+        """
+        # if func.getCallingConvention().name != self._thiscall_str:
+        #     return None
+        high_func = self.get_high_function(func)
+        prot = high_func.getFunctionPrototype()
+        num_params = prot.getNumParams()
+        if num_params == 0:
+            return None
+        maybe_this = prot.getParam(thisptr_param_index)
+        return maybe_this.getDataType()
+
+    def create_structs_for_classes(self, thisptr_ind=0, rename_funcs=True):
+        function_to_vtable_refs = defaultdict(set)
+        vtable_refs_from_funcs = defaultdict(set)
+        
+        # make some mappings that will be helpful for tracing associations between vtables and functions
+        for found_vtable in self.found_vtables:
+            refs = list(getReferencesTo(found_vtable.address))
+            referring_functions = list(set([self.listing.getFunctionContaining(r.fromAddress) for r in refs]))
+            for func in referring_functions:
+                if func is None:
+                    continue
+                function_to_vtable_refs[func].add(found_vtable)
+                vtable_refs_from_funcs[found_vtable].add(func)
+
+        # put things back into lists for easier indexing
+        function_to_vtable_refs = {k: list(v) for k, v in function_to_vtable_refs.items()}
+        vtable_refs_from_funcs = {k: list(v) for k, v in vtable_refs_from_funcs.items()}
+
+        # vtables that are only used by one or two functions are typically either abstract or impl vtables for that class or vtables
+        # for embedded classes. tne one or two functions that reference them are typically either constructors or destructors. Identifying
+        # and labeling these functions and automatically creating the class structures for them cleans up the vast majority of the 
+        # code related to 
+
+        all_vtable_structs = [i.associated_struct for i in self.found_vtables]
+        for found_vtable, functions in vtable_refs_from_funcs.items():
+            # limiting this to vtables that only have a destructor and constructor for now
+            # TODO: maybe use pcode to identify which functions are constructor/destructor
+            if len(functions) != 2:
+                continue
+            
+            # use the same struct across all of the functions for a specific vtable
+            new_struct = None
+            for func in functions:
+                high_func = self.get_high_function(func)
+                prot = high_func.getFunctionPrototype()
+
+                param = prot.getParam(thisptr_ind)
+                if param is None:
+                    continue
+                is_constructor = True
+                if isinstance(prot.getReturnType(), VoidDataType):
+                    is_constructor = False
+                orig_dt = self.get_datatype_of_thisptr(func, thisptr_ind)
+                dt = orig_dt
+                # get real pointed to datatype
+                while isinstance(dt, PointerDataType):
+                    dt = dt.dataType
+
+                if dt not in all_vtable_structs:
+                    continue
+
+                # reset param type to `pointer` so that everything in the struct won't be interpreted as a vtable* as an artifact
+                # of the pervious param's type `vtable**`
+                HighFunctionDBUtil.updateDBVariable(param, param.name, PointerDataType(), SourceType.USER_DEFINED)
+                # refetch the param because the type has changed
+                high_func = self.get_high_function(func)
+                prot = high_func.getFunctionPrototype()
+                param = prot.getParam(thisptr_ind)
+                param_high_var = param.getHighVariable()
+                
+                if new_struct is None:
+                    state = getState()
+                    # location = state.getCurrentLocation()
+                    location = BytesFieldLocation(currentProgram, func.getEntryPoint())
+                    tool = state.getTool()
+                    # NOTE: this might only work with the gui
+                    fos = FillOutStructureCmd(currentProgram, location, tool)
+                    new_struct = fos.processStructure(param_high_var, func)
+                try:
+                    HighFunctionDBUtil.updateDBVariable(param, param.name, new_struct, SourceType.USER_DEFINED)
+                except:
+                    pass
+                if is_constructor is True:
+                    if func.name.startswith('FUN_') and rename_funcs is True:
+                        func.setName("%s_constructor" % new_struct.name, SourceType.USER_DEFINED)
+                    # get an updated version of the high function again
+                    high_func = self.get_high_function(func)
+                    HighFunctionDBUtil.commitReturnToDatabase(high_func, SourceType.USER_DEFINED)
+                    # ret_type = prot.getReturnType()
+                    # ret_type_high_var = ret_type.getHighVariable()
+                    # HighFunctionDBUtil.updateDBVariable(ret_type_high_var, ret_type_high_var.name, new_struct, SourceType.USER_DEFINED)
+                else:
+                    if func.name.startswith('FUN_') and rename_funcs is True:
+                        func.setName("%s_destructor" % new_struct.name, SourceType.USER_DEFINED)
 
 
 vtf = VTableFinder(currentProgram)
+print("finding vtables")
 vtf.apply_vtables_to_program()
+try:
+    # TODO: give user the option to use this, but don't force it
+    print("creating class structures")
+    vtf.create_structs_for_classes()
+    # and update all of the struct field names for vtables
+    vtf.apply_vtables_to_program()
+except:
+    print("something went wrong with creating structures for classes")
 
-"""
-function_to_vtable_refs = defaultdict(set)
-vtable_refs_from_funcs = defaultdict(set)
-
-for found_vtable in vtf.found_vtables:
-    refs = list(getReferencesTo(found_vtable.address))
-    referring_functions = list(set([vtf.listing.getFunctionContaining(r.fromAddress) for r in refs]))
-    for func in referring_functions:
-        function_to_vtable_refs[func].add(found_vtable)
-        vtable_refs_from_funcs[found_vtable].add(func)
-
-# put things back into lists for easier indexing
-function_to_vtable_refs = {k: list(v) for k, v in function_to_vtable_refs.items()}
-vtable_refs_from_funcs = {k: list(v) for k, v in vtable_refs_from_funcs.items()}
-
-# functions that refer to a single vtable and where that vtable 
-"""
+# func.signature.replaceArgument(thisptr_ind, "param_%d" % (thisptr_ind+1), UnsignedLongLongDataType(), "", SourceType.USER_DEFINED)
+# vtf.dtm.addDataType(func.signature, DataTypeConflictHandler.REPLACE_HANDLER)
