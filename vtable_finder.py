@@ -114,13 +114,20 @@ class VTableFinder:
         return address_rexp
     
     def generate_address_range_pattern(self, minimum_addr, maximum_addr):
+        """
+        Generate a regular expression pattern that can be used to match the bytes for an address between 
+        minimum_addr and maximum_addr (inclusive). This works best for small ranges, and will break somewhat if there are non-contiguous 
+        memory blocks 
+        """
         diff = maximum_addr - minimum_addr
         val = diff
+        # calculate the changed number of bytes between the minimum_addr and the maximum_addr
         byte_count = 0
         while val > 0:
             val = val >> 8
             byte_count += 1
 
+        # generate a sufficient wildcard character classes for all of the bytes that could fully change
         wildcard_bytes = byte_count - 1
         wildcard_pattern = b"[\x00-\xff]"
         boundary_byte_upper = (maximum_addr >> (wildcard_bytes*8)) & 0xff
@@ -141,6 +148,10 @@ class VTableFinder:
         return address_pattern
 
     def get_memory_bounds(self, excluded_memory_block_names=["tdb"]):
+        """
+        Try to identify the bounds of memory that is currently mapped in. Some standard memory blocks (like `tdb` for microsoft binaries)
+        are mapped in at ridiculous addresses (like 0xff00000000000000). If a memory block is mapped into this program
+        """
         minimum_addr = 0xffffffffffffffff
         maximum_addr = 0
         memory_blocks = list(getMemoryBlocks())
@@ -158,6 +169,10 @@ class VTableFinder:
     
 
     def find_pointer_runs(self, address_rexp=None, additional_search_block_filter=None):
+        """
+        Finds one or more pointers in a row using a regular expression. If no regular expression is provided, one will be generated
+        based on the current memory blocks of the current program
+        """
         if address_rexp is None:
             minimum_addr, maximum_addr = self.get_memory_bounds()
             address_rexp = self.generate_address_range_rexp(minimum_addr, maximum_addr)
@@ -188,6 +203,10 @@ class VTableFinder:
         return found_pointers
 
     def find_vtables(self, address_rexp=None, additional_search_block_filter=None):
+        """
+        Find runs of pointers and split them up based on references. 
+        NOTE: vtables that contain NULL pointers will likely break this as it currently works
+        """
         found_pointers = self.find_pointer_runs(address_rexp, additional_search_block_filter)
         found_pointers.sort(key=lambda a: a.location)
         memory_blocks = list(getMemoryBlocks()) 
@@ -219,6 +238,9 @@ class VTableFinder:
                 is_next_linear_pointer = False
             # TODO: might need to rework this so that weirder vtables with lots of null pointers in them are
             # TODO: handled better
+
+            # TODO: NULL pointers should probably be added to the list of pointers, or found_vtable should have the `found_pointer` appended
+            # TODO: to it so that calculation of vtable size is correct for vtables that contain NULL pointers
             maybe_new_vtable_loc = found_pointer.location
             # only keep building a vtable if nothing is inbetween this pointer and the previous one.
             if len(location_refs) == 0 and is_next_linear_pointer is True:
@@ -262,6 +284,9 @@ class VTableFinder:
         return references
     
     def get_previous_referenced_address(self, addr, max_look_back=64):
+        """
+        Walk back from `addr` until the last address that has references to it
+        """
         while addr.compareTo(self.minimum_addr_addr) >= 0:
             addr = addr.subtract(self.ptr_size)
             if len(getReferencesTo(addr)) > 0:
@@ -270,35 +295,43 @@ class VTableFinder:
 
 
     def create_or_update_struct_from_found_vtable(self, found_vtable, newname="vtable", function_definition_datatype=False):
+        """
+        Using the FoundVTable `found_vtable`, either create a new struct if none exists at the address of the vtable or if it does
+        exist update it to use the current names of the functions 
+        """
         location_sym = getSymbolAt(found_vtable.address)
         if location_sym is None:
             return None
         structure_name = "%s_%s" % (newname, str(found_vtable.address))
+        # TODO: NULL fields in the middle of vtables cause this calculation to be too low
         vtable_byte_size = self.ptr_size*found_vtable.size
         symbols_to_delete = []
         vtable_data = getDataAt(found_vtable.address)
+        # if there is already a defined structure at the vtable address, just get that structure and update it.
         if vtable_data is not None and vtable_data.isStructure():
             found_vtable.associated_struct = vtable_data.dataType
             self.update_associated_struct(found_vtable,function_definition_datatype)
-            # update structure fields here
             return
         start_addr_int = found_vtable.address.getOffset()
+        # TODO: This initial method for creating field names is kind of a hack, and doesn't seem like reliable behavior for future ghidra releases
+        # START of hacky field naming method
         # create symbols at each address to autofill struct field names
         for i, ptr in enumerate(found_vtable.pointers):
             points_to_sym = getSymbolAt(ptr)
             if points_to_sym is None:
                 continue
             loc = self.addr_space.getAddress((i*self.ptr_size)+start_addr_int)
+            # TODO: uncertain if this will create a pointer datatype at the address, but if it doesn't that needs to be done here
             createSymbol(loc, points_to_sym.name, False, False, SourceType.USER_DEFINED)
             symbols_to_delete.append((loc, points_to_sym.name))
 
-        # new_struct = StructureDataType("vtable_%s" % str(found_vtable.address), found_vtable.size*self.ptr_size, self.dtm)
         # this function uses the existing types of the data
         new_struct = self.struct_fact.createStructureDataType(currentProgram, found_vtable.address, vtable_byte_size, structure_name, True)
         # delete the symbols that autofilled struct field names
         for loc, name in symbols_to_delete:
             removeSymbol(loc, name)
-        # cmd = CreateStructureCmd(new_struct, found_vtable.address)
+        
+        # END of hacky field naming method
         start_addr = found_vtable.address
         end_addr = self.addr_space.getAddress(start_addr.getOffset() + (vtable_byte_size-1))
         # saved_refs = self.find_existing_refs(start_addr, end_addr)
@@ -405,6 +438,10 @@ class VTableFinder:
         return prot.getReturnType()
 
     def find_vtable_references(self):
+        """
+        Create mappings of which functions reference each vtable and which vtables are reference by each function.
+        These reference mappings can be used later on to help identify inheritance associations between classes 
+        """
         function_to_vtable_refs = defaultdict(set)
         vtable_refs_from_funcs = defaultdict(set)
         
@@ -423,6 +460,11 @@ class VTableFinder:
         self.vtable_refs_from_funcs = {k: list(v) for k, v in vtable_refs_from_funcs.items()}
 
     def create_structs_for_classes(self, thisptr_ind=0, rename_funcs=True):
+        """
+        Using FoundVTables, identify functions that reference those vtables (and therefore) which functions can act as constructors
+        or destructors for the classes which use those vtables. Then using the identified constructors and destructors, create new class
+        structures if they do not already exist or auto fill them out if they do
+        """
         self.find_vtable_references()
         print("\ndone getting references")
         # vtables that are only used by one or two functions are typically either abstract or impl vtables for that class or vtables
