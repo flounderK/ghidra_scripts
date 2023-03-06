@@ -28,6 +28,7 @@ from ghidra.program.util import BytesFieldLocation
 from ghidra.app.decompiler import ClangFuncProto
 from ghidra.app.decompiler import ClangVariableDecl
 from ghidra.app.decompiler import DecompilerLocation
+from ghidra.app.decompiler.component import DecompilerUtils
 from collections import namedtuple, defaultdict
 import string
 import re
@@ -36,7 +37,23 @@ import struct
 from __main__ import *
 
 
+def get_line_parent_for_clang_token(c_token):
+    tok = c_token
+    if hasattr(tok, 'getLineParent') and tok.getLineParent() is not None:
+        return tok.getLineParent()
+    while True:
+        parent = tok.Parent()
+        if parent is None:
+            return None
+        for sibling in parent:
+            if hasattr(sibling, 'getLineParent') and sibling.getLineParent() is not None:
+                return sibling.getLineParent()
+        tok = parent
+    return None
+
+
 FoundPointer = namedtuple("FoundPointer", ["points_to", "location"])
+
 
 class FoundVTable:
     def __init__(self, address, pointers=None):
@@ -471,6 +488,11 @@ class VTableFinder:
         # for embedded classes. tne one or two functions that reference them are typically either constructors or destructors. Identifying
         # and labeling these functions and automatically creating the class structures for them cleans up the vast majority of the 
         # code related to 
+
+        # get a list of all of the vtable structure that have been found or created. These need to be checked against in case 
+        # the decompiler has associated one of these structs with a class' destructor/constructor, which indicates that a new class structure
+        # will be needed, and that a `struct vtable**` was identified as the type by ghidra (because vtables are most commonly the first field)
+        # in a class.
         all_vtable_structs = [i.associated_struct for i in self.found_vtables]
         print("\nIdentifying constructors and destructors")
         for found_vtable, functions in self.vtable_refs_from_funcs.items():
@@ -488,8 +510,7 @@ class VTableFinder:
             # so the actual vtable impl will be associated with the vtable field first, meaning that the datatype for the class' vtable 
             # will correctly be associated with the field where it is assigned. This doesn't matter for classes without abstraction, 
             # but for classes with abstraction (where the vtable filled with dummy function pointers is assigned first) this causes the field to
-            # incorrectly be associated with the pure-virtual vtable. As an added bonus, using the 
-
+            # incorrectly be associated with the pure-virtual vtable
             functions.sort(key=lambda func: isinstance(self.get_return_datatype(func), VoidDataType), reverse=True)
 
             for func in functions:
@@ -522,10 +543,7 @@ class VTableFinder:
                 param = prot.getParam(thisptr_ind)
                 param_high_var = param.getHighVariable()
                 
-                # TODO: the fill out command should probably be run for additional functions too to 
-                # TODO: fill in more fields of the class. Unfortunately, the function `processStructure` only creates new structures, it
-                # TODO: does not add on to existing ones. that command will require an actual decompilerLocation, which is used to specify 
-                # TODO: which variable to fill out
+                do_param_assignment = True
                 if class_struct is None:
                     state = getState()
                     # location = state.getCurrentLocation()
@@ -542,11 +560,31 @@ class VTableFinder:
                         self.created_class_structs.append(class_struct)
                     else:
                         continue
-
-                try:
-                    HighFunctionDBUtil.updateDBVariable(param, param.name, PointerDataType(class_struct), SourceType.USER_DEFINED)
-                except:
-                    print("failed to assign struct pointer for %s" % func.name)
+                else:
+                    # TODO: for some constructors where a struct is both allocated and constructed in the same function, 
+                    # TODO: this methodology does not work correctly. For those cases, this should probably try to trace
+                    # TODO: the pcode to identify the variable whose field is actually assigned the vtable pointer
+                    c_token = self.get_clang_token_for_param(func, thisptr_ind)
+                    if c_token is not None:
+                        # print("skipping %s, couldn't find param token in func arguments" % func.name)
+                        # TODO: validate that param type is correct here?
+                        location = self.get_decompiler_location_for_tok(c_token)
+                        tool = state.getTool()
+                        fos = FillOutStructureCmd(currentProgram, location, tool)
+                        # run a sort of `trial-run` to see if the variable is zero length.
+                        # if the vtable had been written to a field, it would at least have the length
+                        # of that pointer in the structure length
+                        trial_created_class_struct = fos.processStructure(param_high_var, func)
+                        if not trial_created_class_struct.isZeroLength():
+                            fos.applyTo(currentProgram, self._monitor)
+                        else:
+                            do_param_assignment = False
+                
+                if do_param_assignment is True:
+                    try:
+                        HighFunctionDBUtil.updateDBVariable(param, param.name, PointerDataType(class_struct), SourceType.USER_DEFINED)
+                    except:
+                        print("failed to assign struct pointer for %s" % func.name)
                 if is_constructor is True:
                     if func.name.startswith('FUN_') and rename_funcs is True:
                         func.setName("%s_constructor" % class_struct.name, SourceType.USER_DEFINED)
@@ -563,10 +601,16 @@ class VTableFinder:
         
     def get_clang_token_for_param(self, func, param_ind=0):
         decomp_res = self.decompile_function(func)
+        # something in decomp_res prevents tokens from populateing lineParent
+        # This is to force the line parent to populate, looks like it is a lazy variable
+        decomp_res.getDecompiledFunction().getC()
+        found_token = None
         high_func = decomp_res.getHighFunction()
+        proto = high_func.getFunctionPrototype()
         try:
-            param = high_func.getParam(param_ind)
+            param = proto.getParam(param_ind)
         except:
+            print("returning none for bad param ind")
             return None
         param_high_var = param.getHighVariable()
         ccode_markup = decomp_res.getCCodeMarkup()
@@ -587,8 +631,31 @@ class VTableFinder:
             tok_high_var = name_tok.getHighVariable()
             if tok_high_var.PCAddress == param_high_var.PCAddress and \
                 tok_high_var.name == param_high_var.name: 
+                # HACK to work around lazy variable 
                 return name_tok
+                found_token = name_tok
+                break
         return None
+        # commenting out this code for now, but since the ClangToken code seems somewhat unreliable in 
+        # some areas, keeping it around in case everything breaks in a new release
+        """
+        if found_token is None:
+            return None
+        
+        found_token_type = type(found_token)
+        found_token_high_var = found_token.getHighVariable()
+        # correct token has been found, but it has not been associated with a line correctly
+        for line in DecompilerUtils.toLines(ccode_markup):
+            for tok in line.getAllTokens():
+                if not found_token_type == type(tok):
+                    continue
+                tok_high_var = tok.getHighVariable()
+                if tok_high_var.PCAddress == found_token_high_var.PCAddress and \
+                    tok_high_var.name == found_token_high_var.name:
+                    return tok
+
+        return None
+        """
 
     def get_decompiler_location_for_tok(self, c_token):
         high_var = c_token.getHighVariable()
@@ -597,7 +664,8 @@ class VTableFinder:
         entrypoint = func.getEntryPoint()
         addr = high_var.getPCAddress()
         decomp_res = self.decompile_function(func)
-        clang_line = c_token.getLineParent()
+        clang_line = get_line_parent_for_clang_token(c_token)
+        # clang_line = c_token.getLineParent()
         line_num = clang_line.getLineNumber() - 1
         chr_off = 0
         # add up the string length of all of the tokens up until the token
@@ -605,7 +673,7 @@ class VTableFinder:
             if t == c_token:
                 break
             chr_off += len(t.toString())
-        line_str = ''.join([i.toString() for i in clang_line.getAllTokens()])
+        # line_str = ''.join([i.toString() for i in clang_line.getAllTokens()])
         decomp_loc = DecompilerLocation(currentProgram, addr, entrypoint, decomp_res, c_token, line_num, chr_off)
         return decomp_loc
 
