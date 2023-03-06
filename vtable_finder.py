@@ -25,6 +25,9 @@ from ghidra.program.model.data import DataTypeConflictHandler
 from ghidra.util.exception import DuplicateNameException
 from ghidra.program.model.pcode import HighFunctionDBUtil
 from ghidra.program.util import BytesFieldLocation
+from ghidra.app.decompiler import ClangFuncProto
+from ghidra.app.decompiler import ClangVariableDecl
+from ghidra.app.decompiler import DecompilerLocation
 from collections import namedtuple, defaultdict
 import string
 import re
@@ -102,6 +105,7 @@ class VTableFinder:
         self.function_to_vtable_refs = {}
         self.vtable_refs_from_funcs = {}
         self.created_class_structs = []
+        self._constructor_destructor_associated_functions = []
         
 
     def generate_address_range_rexp(self, minimum_addr, maximum_addr):
@@ -364,6 +368,11 @@ class VTableFinder:
         # replace the old type with the new modified type
         self.dtm.addDataType(associated_struct, DataTypeConflictHandler.REPLACE_HANDLER)
 
+    def decompile_function(self, func, timeout=60):
+        self._ifc.openProgram(func.getProgram())
+        res = self._ifc.decompileFunction(func, timeout, self._monitor)
+        return res
+
     def get_high_function(self, func, timeout=60):
         """
         Get a HighFunction for a given function
@@ -423,8 +432,10 @@ class VTableFinder:
         all_vtable_structs = [i.associated_struct for i in self.found_vtables]
         print("\nIdentifying constructors and destructors")
         for found_vtable, functions in self.vtable_refs_from_funcs.items():
+            # TODO: Maybe use pcode to identify which functions are constructor/destructor.
             # limiting this to vtables that only have a destructor and constructor for now
-            # TODO: maybe use pcode to identify which functions are constructor/destructor
+            # TODO: Since Identifying Constructors/Destructors based off of how many functions touch the vtable seems to work pretty well for 
+            # TODO: simple classes, so the same thing will likely work for some complex classes s
             if len(functions) != 2:
                 continue
             
@@ -506,7 +517,55 @@ class VTableFinder:
                 else:
                     if func.name.startswith('FUN_') and rename_funcs is True:
                         func.setName("%s_destructor" % class_struct.name, SourceType.USER_DEFINED)
+                self._constructor_destructor_associated_functions.append(func)
+        
+    def get_clang_token_for_param(self, func, param_ind=0):
+        decomp_res = self.decompile_function(func)
+        high_func = decomp_res.getHighFunction()
+        try:
+            param = high_func.getParam(param_ind)
+        except:
+            return None
+        param_high_var = param.getHighVariable()
+        ccode_markup = decomp_res.getCCodeMarkup()
+        c_func_proto = None
+        for tok in ccode_markup:
+            if isinstance(tok, ClangFuncProto):
+                c_func_proto = tok
+                break
+        
+        if c_func_proto is None:
+            return None
+        for tok in c_func_proto:
+            # additional validation might be needed, but this seems sufficient for now
+            if not isinstance(tok, ClangVariableDecl):
+                continue
+            # just get the param name token, not the type
+            name_tok = list(tok)[-1]
+            tok_high_var = name_tok.getHighVariable()
+            if tok_high_var.PCAddress == param_high_var.PCAddress and \
+                tok_high_var.name == param_high_var.name: 
+                return name_tok
+        return None
 
+    def get_decompiler_location_for_tok(self, c_token):
+        high_var = c_token.getHighVariable()
+        high_func = high_var.getHighFunction()
+        func = high_func.getFunction()
+        entrypoint = func.getEntryPoint()
+        addr = high_var.getPCAddress()
+        decomp_res = self.decompile_function(func)
+        clang_line = c_token.getLineParent()
+        line_num = clang_line.getLineNumber() - 1
+        chr_off = 0
+        # add up the string length of all of the tokens up until the token
+        for t in clang_line.getAllTokens():
+            if t == c_token:
+                break
+            chr_off += len(t.toString())
+        line_str = ''.join([i.toString() for i in clang_line.getAllTokens()])
+        decomp_loc = DecompilerLocation(currentProgram, addr, entrypoint, decomp_res, c_token, line_num, chr_off)
+        return decomp_loc
 
 find_and_apply_vtables = True
 identify_and_create_class_structures = True
