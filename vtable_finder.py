@@ -386,7 +386,14 @@ class VTableFinder:
             return None
         maybe_this = prot.getParam(thisptr_param_index)
         return maybe_this.getDataType()
-
+    
+    def get_return_datatype(self, func):
+        """
+        Get the datatype of a Function's return value
+        """
+        high_func = self.get_high_function(func)
+        prot = high_func.getFunctionPrototype()
+        return prot.getReturnType()
 
     def find_vtable_references(self):
         function_to_vtable_refs = defaultdict(set)
@@ -423,6 +430,15 @@ class VTableFinder:
             
             # use the same struct across all of the functions for a specific vtable
             class_struct = None
+            # if possible, functions should be sorted by whether or not they have a VoidDataType return type (aka destructors).
+            # because, at least for windows binaries, destructors will assign vtables to the classes in reverse construction order,
+            # so the actual vtable impl will be associated with the vtable field first, meaning that the datatype for the class' vtable 
+            # will correctly be associated with the field where it is assigned. This doesn't matter for classes without abstraction, 
+            # but for classes with abstraction (where the vtable filled with dummy function pointers is assigned first) this causes the field to
+            # incorrectly be associated with the pure-virtual vtable. As an added bonus, using the 
+
+            functions.sort(key=lambda func: isinstance(self.get_return_datatype(func), VoidDataType), reverse=True)
+
             for func in functions:
                 high_func = self.get_high_function(func)
                 prot = high_func.getFunctionPrototype()
@@ -453,16 +469,27 @@ class VTableFinder:
                 param = prot.getParam(thisptr_ind)
                 param_high_var = param.getHighVariable()
                 
+                # TODO: the fill out command should probably be run for additional functions too to 
+                # TODO: fill in more fields of the class. Unfortunately, the function `processStructure` only creates new structures, it
+                # TODO: does not add on to existing ones. that command will require an actual decompilerLocation, which is used to specify 
+                # TODO: which variable to fill out
                 if class_struct is None:
                     state = getState()
                     # location = state.getCurrentLocation()
                     location = BytesFieldLocation(currentProgram, func.getEntryPoint())
                     tool = state.getTool()
                     # NOTE: this might only work with the gui
+                    # NOTE: this class is accessible through the api, but is not documented in the api, so there is a risk of
+                    # NOTE: it being deprecated at some point. For now it is a feature that is unlikely to be removed though
                     fos = FillOutStructureCmd(currentProgram, location, tool)
-                    print("creating class struct for %s" % func.name)
-                    class_struct = fos.processStructure(param_high_var, func)
-                    self.created_class_structs.append(class_struct)
+                    created_class_struct = fos.processStructure(param_high_var, func)
+                    if not created_class_struct.isZeroLength():
+                        print("created class struct for %s" % func.name)
+                        class_struct = created_class_struct
+                        self.created_class_structs.append(class_struct)
+                    else:
+                        continue
+
                 try:
                     HighFunctionDBUtil.updateDBVariable(param, param.name, PointerDataType(class_struct), SourceType.USER_DEFINED)
                 except:
@@ -504,14 +531,13 @@ if find_and_apply_vtables is True:
     print("\nfinding vtables")
     vtf.apply_vtables_to_program()
 
-try:
-    if identify_and_create_class_structures is True:
-        print("\ncreating class structures")
-        vtf.create_structs_for_classes()
-        # and update all of the struct field names for vtables
-        vtf.apply_vtables_to_program()
-except:
-    print("\nsomething went wrong with creating structures for classes")
+
+if identify_and_create_class_structures is True:
+    print("\ncreating class structures")
+    vtf.create_structs_for_classes()
+    # and update all of the struct field names for vtables
+    vtf.apply_vtables_to_program()
+
 
 print("\nvtable finder done")
 # func.signature.replaceArgument(thisptr_ind, "param_%d" % (thisptr_ind+1), UnsignedLongLongDataType(), "", SourceType.USER_DEFINED)
