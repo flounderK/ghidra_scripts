@@ -3,6 +3,7 @@
 #@category C++
 
 
+import ghidra
 from ghidra.app.decompiler import DecompileOptions
 from ghidra.app.decompiler import DecompInterface
 from ghidra.util.task import ConsoleTaskMonitor
@@ -30,6 +31,7 @@ from ghidra.app.decompiler import ClangVariableDecl
 from ghidra.app.decompiler import DecompilerLocation
 from ghidra.app.decompiler.component import DecompilerUtils
 from collections import namedtuple, defaultdict
+import java
 import string
 import re
 import struct
@@ -160,7 +162,7 @@ class VTableFinder:
             single_address_pattern = b''.join([wildcard_pattern*wildcard_bytes, boundary_byte_pattern, packed_addr[byte_count:]])
         else:
             packed_addr = struct.pack(self.pack_sym, minimum_addr)
-            single_address_pattern =  b''.join([packed_addr[:byte_count], boundary_byte_pattern, wildcard_pattern*wildcard_bytes])
+            single_address_pattern = b''.join([packed_addr[:byte_count], boundary_byte_pattern, wildcard_pattern*wildcard_bytes])
 
         address_pattern = b"(%s)+" % single_address_pattern
         return address_pattern
@@ -208,7 +210,19 @@ class VTableFinder:
             region_start = m_block.getStart()
             region_start_int = region_start.getOffset()
             search_bytes = getBytes(region_start, m_block.getSize())
-            for m in re.finditer(address_rexp, search_bytes):
+            iter_gen = re.finditer(address_rexp, search_bytes)
+            match_count = 0
+            # hacky loop over matches so that the recursion limit can be caught
+            while True:
+                try:
+                    m = next(iter_gen)
+                except StopIteration:
+                    break
+                except RuntimeError:
+                    # this means that recursion went too deep
+                    print("match hit recursion limit on match %d" % match_count)
+                    break
+                match_count += 1
                 vtable_match_bytes = m.group()
                 unpacked_addr_ints = struct.unpack_from(self.pack_endian + (len(vtable_match_bytes)//self.ptr_size)*self.pack_code, vtable_match_bytes)
                 match_start = m.start()
@@ -236,7 +250,6 @@ class VTableFinder:
         else:
             has_text_section = True
         found_vtables = set()
-        current_vtable = []
         last_location_addr = None
         # dummy vtable
         last_found_vtable = FoundVTable(self._null)
@@ -254,13 +267,16 @@ class VTableFinder:
             is_next_linear_pointer = True
             if last_location_addr is not None and not last_location_addr.add(self.ptr_size).equals(found_pointer.location):
                 is_next_linear_pointer = False
-            # TODO: might need to rework this so that weirder vtables with lots of null pointers in them are
-            # TODO: handled better
+            # TODO: might need to rework this so that weirder vtables with
+            # TODO: lots of null pointers in them are handled better
 
-            # TODO: NULL pointers should probably be added to the list of pointers, or found_vtable should have the `found_pointer` appended
-            # TODO: to it so that calculation of vtable size is correct for vtables that contain NULL pointers
+            # TODO: NULL pointers should probably be added to the list of
+            # TODO: pointers, or found_vtable should have the `found_pointer`
+            # TODO: appended to it so that calculation of vtable size is
+            # TODO: correct for vtables that contain NULL pointers
             maybe_new_vtable_loc = found_pointer.location
-            # only keep building a vtable if nothing is inbetween this pointer and the previous one.
+            # only keep building a vtable if nothing is inbetween this
+            # pointer and the previous one.
             if len(location_refs) == 0 and is_next_linear_pointer is True:
                 last_location_addr = found_pointer.location
                 last_found_vtable.pointers.append(found_pointer.points_to)
@@ -277,8 +293,8 @@ class VTableFinder:
                     # the previously referenced data, not the last vtable (however far back that might be)
                     maybe_new_vtable_loc = prev_referenced_addr
 
-
-            # there were references to this address or there was no established previous data, So start a new vtable
+            # there were references to this address or there was no
+            # established previous data, So start a new vtable
             found_vtables.add(last_found_vtable)
             last_found_vtable = FoundVTable(maybe_new_vtable_loc)
             last_location_addr = found_pointer.location
@@ -288,7 +304,6 @@ class VTableFinder:
             found_vtables.add(last_found_vtable)
         self.found_vtables = list(found_vtables)
         return list(found_vtables)
-
 
     def find_existing_refs(self, start_addr, end_addr):
         references = []
@@ -306,7 +321,10 @@ class VTableFinder:
         Walk back from `addr` until the last address that has references to it
         """
         while addr.compareTo(self.minimum_addr_addr) >= 0:
-            addr = addr.subtract(self.ptr_size)
+            try:
+                addr = addr.subtract(self.ptr_size)
+            except ghidra.program.model.address.AddressOutOfBoundsException:
+                break
             if len(getReferencesTo(addr)) > 0:
                 return addr
         return None
@@ -343,8 +361,11 @@ class VTableFinder:
             createSymbol(loc, points_to_sym.name, False, False, SourceType.USER_DEFINED)
             symbols_to_delete.append((loc, points_to_sym.name))
 
-        # this function uses the existing types of the data
-        new_struct = self.struct_fact.createStructureDataType(self.currentProgram, found_vtable.address, vtable_byte_size, structure_name, True)
+        try:
+            # this function uses the existing types of the data
+            new_struct = self.struct_fact.createStructureDataType(self.currentProgram, found_vtable.address, vtable_byte_size, structure_name, True)
+        except java.lang.IllegalArgumentException:
+            return
         # delete the symbols that autofilled struct field names
         for loc, name in symbols_to_delete:
             removeSymbol(loc, name)
@@ -637,15 +658,17 @@ class VTableFinder:
                 found_token = name_tok
                 break
         return None
-        # commenting out this code for now, but since the ClangToken code seems somewhat unreliable in
-        # some areas, keeping it around in case everything breaks in a new release
+        # commenting out this code for now, but since the ClangToken
+        # code seems somewhat unreliable in some areas, keeping it
+        # around in case everything breaks in a new release
         """
         if found_token is None:
             return None
 
         found_token_type = type(found_token)
         found_token_high_var = found_token.getHighVariable()
-        # correct token has been found, but it has not been associated with a line correctly
+        # correct token has been found, but it has not been
+        # associated with a line correctly
         for line in DecompilerUtils.toLines(ccode_markup):
             for tok in line.getAllTokens():
                 if not found_token_type == type(tok):
@@ -675,8 +698,10 @@ class VTableFinder:
                 break
             chr_off += len(t.toString())
         # line_str = ''.join([i.toString() for i in clang_line.getAllTokens()])
-        decomp_loc = DecompilerLocation(self.currentProgram, addr, entrypoint, decomp_res, c_token, line_num, chr_off)
+        decomp_loc = DecompilerLocation(self.currentProgram, addr, entrypoint,
+                                        decomp_res, c_token, line_num, chr_off)
         return decomp_loc
+
 
 find_and_apply_vtables = True
 identify_and_create_class_structures = True
