@@ -88,6 +88,7 @@ class VTableFinder:
         self._stack_reg_offset = currentProgram.getRegister("sp").getOffset()
         self.struct_fact = StructureFactory()
         self.listing = currentProgram.getListing()
+        self.bm = currentProgram.getBookmarkManager()
 
         self.ptr_size = self.addr_space.getPointerSize()
         if self.ptr_size == 4:
@@ -127,7 +128,6 @@ class VTableFinder:
         self.created_class_structs = []
         self._constructor_destructor_associated_functions = []
 
-
     def generate_address_range_rexp(self, minimum_addr, maximum_addr):
         address_pattern = self.generate_address_range_pattern(minimum_addr, maximum_addr)
         address_rexp = re.compile(address_pattern, re.DOTALL | re.MULTILINE)
@@ -164,6 +164,8 @@ class VTableFinder:
             packed_addr = struct.pack(self.pack_sym, minimum_addr)
             single_address_pattern = b''.join([packed_addr[:byte_count], boundary_byte_pattern, wildcard_pattern*wildcard_bytes])
 
+        # empty_addr = struct.pack(self.pack_sym, 0)
+
         address_pattern = b"(%s)+" % single_address_pattern
         return address_pattern
 
@@ -176,7 +178,8 @@ class VTableFinder:
         maximum_addr = 0
         memory_blocks = list(getMemoryBlocks())
         for m_block in memory_blocks:
-            # tdb is placed at a very large address that is well outside of the loaded range for most executables
+            # tdb is placed at a very large address that is well outside
+            # of the loaded range for most executables
             if m_block.name in excluded_memory_block_names:
                 continue
             start = m_block.getStart().getOffset()
@@ -329,14 +332,13 @@ class VTableFinder:
                 return addr
         return None
 
-
-    def create_or_update_struct_from_found_vtable(self, found_vtable, newname="vtable", function_definition_datatype=False):
+    def create_or_update_struct_from_found_vtable(self, found_vtable, newname="vtable", function_definition_datatype=False, require_symbol=True):
         """
         Using the FoundVTable `found_vtable`, either create a new struct if none exists at the address of the vtable or if it does
         exist update it to use the current names of the functions
         """
         location_sym = getSymbolAt(found_vtable.address)
-        if location_sym is None:
+        if require_symbol is True and location_sym is None:
             return None
         structure_name = "%s_%s" % (newname, str(found_vtable.address))
         # TODO: NULL fields in the middle of vtables cause this calculation to be too low
@@ -346,10 +348,13 @@ class VTableFinder:
         # if there is already a defined structure at the vtable address, just get that structure and update it.
         if vtable_data is not None and vtable_data.isStructure():
             found_vtable.associated_struct = vtable_data.dataType
-            self.update_associated_struct(found_vtable,function_definition_datatype)
+            self.update_associated_struct(found_vtable,
+                                          function_definition_datatype)
             return
         start_addr_int = found_vtable.address.getOffset()
-        # TODO: This initial method for creating field names is kind of a hack, and doesn't seem like reliable behavior for future ghidra releases
+        # TODO: This initial method for creating field names is kind of a
+        # TODO: hack, and doesn't seem like reliable behavior for
+        # TODO: future ghidra releases
         # START of hacky field naming method
         # create symbols at each address to autofill struct field names
         for i, ptr in enumerate(found_vtable.pointers):
@@ -394,15 +399,20 @@ class VTableFinder:
         found_vtable.associated_struct = new_struct
         self.update_associated_struct(found_vtable, function_definition_datatype)
 
-    def apply_vtables_to_program(self, function_definition_datatype=False, address_rexp=None):
+    def apply_vtables_to_program(self, function_definition_datatype=False, address_rexp=None, require_symbol=True):
         found_vtables = self.find_vtables(address_rexp=address_rexp)
 
         for found_vtable in found_vtables:
             location_sym = getSymbolAt(found_vtable.address)
-            if location_sym is None:
+            if require_symbol is True and location_sym is None:
                 continue
 
-            self.create_or_update_struct_from_found_vtable(found_vtable, function_definition_datatype=function_definition_datatype)
+            self.bm.setBookmark(found_vtable.address, "Analysis",
+                                "Found VTable", "Vtable found at %s" % found_vtable.address)
+
+            self.create_or_update_struct_from_found_vtable(found_vtable,
+                                                           function_definition_datatype=function_definition_datatype,
+                                                           require_symbol=require_symbol)
 
     def update_associated_struct(self, found_vtable, function_defininition_datatype=False):
         # get associated struct if it hasn't been assigned yet
@@ -710,13 +720,16 @@ if __name__ == "__main__" and not isRunningHeadless():
     find_and_apply_vtables = False
     identify_and_create_class_structures = False
     manually_set_memory_bounds = False
+    require_symbol_for_vtable_ident = True
     choices = askChoices("Vtable Finder", "Select VTable analysis options",
                          ["find_and_apply_vtables",
                           "identify_and_create_class_structures",
-                          "manually_set_memory_bounds"],
+                          "manually_set_memory_bounds",
+                          "no_require_symbol_for_vtable_ident"],
                          ["Find vtables and apply them to current program",
                           "Identify and create class structures",
-                          "Manually set memory bounds for pointer search"])
+                          "Manually set memory bounds for pointer search",
+                          "Don't Require pre-existing symbol for vtable ident (turn this on for non-ELF and non-PE files)"])
     for choice in choices:
         if choice.find("find_and_apply_vtables") != -1:
             find_and_apply_vtables = True
@@ -724,6 +737,9 @@ if __name__ == "__main__" and not isRunningHeadless():
             identify_and_create_class_structures = True
         elif choice.find("manually_set_memory_bounds") != -1:
             manually_set_memory_bounds = True
+        elif choice.find("no_require_symbol_for_vtable_ident") != -1:
+            require_symbol_for_vtable_ident = False
+
 
 
 vtf = VTableFinder(currentProgram)
@@ -736,15 +752,16 @@ if manually_set_memory_bounds is True:
 
 if find_and_apply_vtables is True:
     print("\nfinding vtables")
-    vtf.apply_vtables_to_program(address_rexp=address_rexp)
+    vtf.apply_vtables_to_program(address_rexp=address_rexp,
+                                 require_symbol=require_symbol_for_vtable_ident)
 
 
 if identify_and_create_class_structures is True:
     print("\ncreating class structures")
     vtf.create_structs_for_classes()
     # and update all of the struct field names for vtables
-    vtf.apply_vtables_to_program(address_rexp=address_rexp)
-
+    vtf.apply_vtables_to_program(address_rexp=address_rexp,
+                                 require_symbol=require_symbol_for_vtable_ident)
 
 print("\nvtable finder done")
 # func.signature.replaceArgument(thisptr_ind, "param_%d" % (thisptr_ind+1), UnsignedLongLongDataType(), "", SourceType.USER_DEFINED)
