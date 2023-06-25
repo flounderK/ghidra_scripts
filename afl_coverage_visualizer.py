@@ -1,8 +1,11 @@
 # Try to visualize the coverage from an afl++ bitmap in ghidra
+# generate a showmap file with
+# `afl-showmap -C -i <afl-out-dir> -o showmap -- <fuzzed-binary>`
 #@author Clifton Wolfe
 
 import ghidra
 from ghidra.program.model.block import BasicBlockModel
+from ghidra.program.model.address import AddressSet
 from collections import namedtuple
 import re
 
@@ -24,7 +27,7 @@ SANCOV_PC_GUARD_VALUE_SIZE = 4
 SANCOV_PC_GUARD_START_INDEX = 6
 COLOR_DEFAULT = Color(255, 255, 255)  # white
 COLOR_VISITED = Color(137, 207, 240)  # light blue
-
+COLOR_UNVISITED = Color(178, 34, 34)  # dark red
 
 
 def get_pc_guard_refs():
@@ -99,12 +102,8 @@ class BasicBlockHighlighter:
                                          color=COLOR_VISITED):
         bb = self.get_basic_block(address)
         for address_range in bb.addressRanges:
-            curr_addr = address_range.minAddress
-            max_addr = address_range.maxAddress
-            while curr_addr <= max_addr:
-                instr = getInstructionContaining(curr_addr)
-                setBackgroundColor(instr.getAddress(), color)
-                curr_addr = instr.maxAddress.add(1)
+            address_set = AddressSet(address_range)
+            setBackgroundColor(address_set, color)
         # save record of this highlight so it can be
         # undone later
         self.hightlighted_block_record.add(address)
@@ -136,6 +135,9 @@ def pc_guard_offset_to_showmap_index(offset):
 
 
 def hightlight_sancov_visited_basic_blocks():
+    """
+    Currently the main functionality of the script.
+    """
     showmap_file = askFile("showmap File",
                            "Path to a file output from afl-showmap")
     showmap_filepath = showmap_file.toString()
@@ -144,11 +146,18 @@ def hightlight_sancov_visited_basic_blocks():
     showmap_offsets = set([showmap_index_to_pc_guard_offset(i) for i in showmap_indices])
     pc_guard_refs = get_pc_guard_refs()
     bbh = BasicBlockHighlighter()
+    unused_pc_guard_refs = []
+    # TODO: these can likely be optimized a bit
     for pc_guard_ref in pc_guard_refs:
-        if pc_guard_ref.offset not in showmap_offsets:
-            continue
         addr = pc_guard_ref.ref.fromAddress
-        bbh.highlight_basic_block_of_address(addr)
+        if pc_guard_ref.offset not in showmap_offsets:
+            unused_pc_guard_refs.append(pc_guard_ref)
+            continue
+        bbh.highlight_basic_block_of_address(addr, COLOR_VISITED)
+
+    for pc_guard_ref in unused_pc_guard_refs:
+        addr = pc_guard_ref.ref.fromAddress
+        bbh.highlight_basic_block_of_address(addr, COLOR_UNVISITED)
 
 
 if __name__ == "__main__":
