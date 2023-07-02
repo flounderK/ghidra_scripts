@@ -1,7 +1,12 @@
 #!/bin/bash
 
 CAN_PROCEED=1
-TMP_DIR=$(mktemp -d)
+if [[ ! -z "${OUTPUT_DIR}" ]]; then
+	TMP_DIR="${OUTPUT_DIR}"
+else
+	TMP_DIR=$(mktemp -d)
+fi
+
 # for debugging
 # mkdir -p $TMP_DIR
 
@@ -15,18 +20,19 @@ else
 fi
 
 
-if [[ -z "${OUTPUT_DIR}" ]]; then
-	echo "ERR: OUTPUT_DIR must be set"
+if [[ -z "${AFL_OUTPUT_DIR}" ]]; then
+	echo "ERR: AFL_OUTPUT_DIR must be set"
 	# maybe use AFL_CUSTOM_INFO_OUT
 	CAN_PROCEED=0
 fi
 
 if [[ $# -lt 2 ]]; then
 	echo "$0"
-	echo "Usage: OUTPUT_DIR=<afl-output-dir> $0 <command args>"
+	echo "Usage: AFL_OUTPUT_DIR=<afl-output-dir> $0 <command args>"
 	echo ""
-	echo "      OUTPUT_DIR: output directory from afl++"
+	echo "      AFL_OUTPUT_DIR: output directory from afl++"
 	echo "      AFL_PATH: path to built afl++ project. not necessary if afl++ has been installed"
+	echo "      OUTPUT_DIR: path to output traces in"
 	CAN_PROCEED=0
 fi
 
@@ -37,7 +43,7 @@ if [[ $CAN_PROCEED -eq 0 ]]; then
 	exit 1
 fi
 
-QUEUE_DIR=$(find $OUTPUT_DIR -type d -name 'queue')
+QUEUE_DIR=$(find $AFL_OUTPUT_DIR -type d -name 'queue')
 
 for i in $(find $QUEUE_DIR -type f); do
 	TMP_FILE=$(mktemp -p $TMP_DIR)
