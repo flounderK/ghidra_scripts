@@ -10,7 +10,9 @@ import ghidra
 from ghidra.program.model.block import BasicBlockModel
 from ghidra.program.model.address import AddressSet
 from ghidra.program.model.symbol import FlowType
+from ghidra.program.model.symbol import SymbolType
 from collections import namedtuple, defaultdict
+import os
 import re
 
 from java.awt import Color
@@ -84,6 +86,8 @@ def get_pc_guard_refs():
 
 def get_code_block(address):
     func = getFunctionContaining(address)
+    if not func:
+        return None
     block_model = BasicBlockModel(currentProgram)
     addresses = func.getBody()
     code_blocks = list(block_model.getCodeBlocksContaining(addresses,
@@ -92,28 +96,6 @@ def get_code_block(address):
         if code_block.contains(address):
             return code_block
     return None
-
-
-class BlockHighlighter:
-    """
-    Class for hightlighting basic blocks
-    """
-    def __init__(self):
-        self.hightlighted_block_record = []
-        self.listing = currentProgram.getListing()
-
-    def highlight_code_block_of_address(self, address,
-                                        color=COLOR_VISITED):
-        bb = get_code_block(address)
-        self.highlight_code_block(bb)
-
-    def highlight_code_block(self, code_block, color=COLOR_VISITED):
-        for address_range in code_block.addressRanges:
-            address_set = AddressSet(address_range)
-            setBackgroundColor(address_set, color)
-        # save record of this highlight so it can be
-        # undone later
-        self.hightlighted_block_record.append(code_block)
 
 
 def parse_indices_from_showmap_output(filepath):
@@ -161,6 +143,28 @@ def get_code_block_dests(code_block):
     while dest_iterator.hasNext():
         dests.append(dest_iterator.next())
     return dests
+
+
+class BlockHighlighter:
+    """
+    Class for hightlighting basic blocks
+    """
+    def __init__(self):
+        self.hightlighted_block_record = []
+        self.listing = currentProgram.getListing()
+
+    def highlight_code_block_of_address(self, address,
+                                        color=COLOR_VISITED):
+        bb = get_code_block(address)
+        self.highlight_code_block(bb)
+
+    def highlight_code_block(self, code_block, color=COLOR_VISITED):
+        for address_range in code_block.addressRanges:
+            address_set = AddressSet(address_range)
+            setBackgroundColor(address_set, color)
+        # save record of this highlight so it can be
+        # undone later
+        self.hightlighted_block_record.append(code_block)
 
 
 class BlockFlowTracer:
@@ -218,9 +222,28 @@ class BlockFlowTracer:
         return all_visited_blocks
 
 
+def highlight_visited_and_unvisited_blocks(all_visited_blocks, unreached):
+    """
+    Generic function for highlighting all of the blocks that were visited
+    and unvisited. Also does a little bit of "analysis" to try to improve
+    results slightly
+    """
+    bbh = BlockHighlighter()
+    # Find blocks that must be unconditionally reached
+    v_bft = BlockFlowTracer(all_visited_blocks)
+    all_blocks_to_highlight = v_bft.get_all_unconditionally_visited_blocks()
+
+    for block in unreached:
+        bbh.highlight_code_block(block, COLOR_UNVISITED)
+
+    for block in all_blocks_to_highlight:
+        bbh.highlight_code_block(block, COLOR_VISITED)
+
+
 def hightlight_sancov_visited_code_blocks():
     """
-    Currently the main functionality of the script.
+    Highlight blocks based on sancov pc guards. Only works for binaries
+    built with afl
     """
     showmap_file = askFile("showmap File",
                            "Path to a file output from afl-showmap")
@@ -229,7 +252,6 @@ def hightlight_sancov_visited_code_blocks():
     showmap_indices = parse_indices_from_showmap_output(showmap_filepath)
     showmap_offsets = set([showmap_index_to_pc_guard_offset(i) for i in showmap_indices])
     pc_guard_refs = get_pc_guard_refs()
-    bbh = BlockHighlighter()
     unreached_code_blocks = []
     all_visited_blocks = []
     # TODO: these can likely be optimized a bit
@@ -243,17 +265,117 @@ def hightlight_sancov_visited_code_blocks():
         all_visited_blocks.append(code_block)
 
     all_blocks_to_highlight = all_visited_blocks
-    # Find blocks that must be unconditionally reached
-    bft = BlockFlowTracer(all_visited_blocks)
-    all_blocks_to_highlight = bft.get_all_unconditionally_visited_blocks()
+    highlight_visited_and_unvisited_blocks(all_blocks_to_highlight,
+                                           unreached_code_blocks)
 
-    for block in unreached_code_blocks:
-        bbh.highlight_code_block(block, COLOR_UNVISITED)
 
-    for block in all_blocks_to_highlight:
-        bbh.highlight_code_block(block, COLOR_VISITED)
+def all_child_filepaths_gen(dir_path):
+    """
+    Get all of the files under the dir path
+    """
+    for dirpath, dirnames, filenames in os.walk(dir_path):
+        for filename in filenames:
+            filepath = os.path.join(dirpath, filename)
+            yield filepath
 
+
+class QemuAsmAnalyzer:
+    """
+    A class for Assisting with the analysis of qemu asm logs.
+    Helps to determine if current program's base changes
+    """
+    def __init__(self):
+        self.symb_history = defaultdict(list)
+        self.symb_rexp = re.compile('IN: ([^\n]+)\n(0x[a-f0-9]+)',
+                                    re.MULTILINE | re.DOTALL)
+        self.first_block_addr_rexp = re.compile('IN:[^\n]+\n(0x[a-f0-9]+):',
+                                    re.MULTILINE | re.DOTALL)
+        sm = currentProgram.getSymbolTable()
+        self.useful_symbols = {i.name: i.getAddress().getOffset()
+                               for i in sm.getSymbolIterator()
+                               if i.isExternalEntryPoint() and
+                               i.symbolType == SymbolType.FUNCTION}
+
+    def get_binary_base_from_symbols(self, qemu_in_asm_log):
+        """
+        Get the base of the binary using the symbols that appear in
+        qemu log
+        """
+        current_base_int = currentProgram.getImageBase().getOffset()
+        for m in re.finditer(self.symb_rexp, qemu_in_asm_log):
+            log_symbol, address_str = m.groups()
+            log_address = int(address_str, 16)
+            known_addr = self.useful_symbols.get(log_symbol)
+            # if the symbol doesn't appear in ghidra, it is likely from the
+            # wrong binary, skip it
+            if known_addr is None:
+                continue
+
+            # symbol matched, but is probably a dupicate symbol that exists
+            # in multiple binaries. Only keep ones that appear to have come
+            # from this binary
+            if (known_addr & 0xfff) != (log_address & 0xfff):
+                continue
+
+            # ghidra will add a dummy base address if the executable is PIE,
+            # so remove that to get the offset
+            known_offset = known_addr - current_base_int
+            binary_base = log_address - known_offset
+            return binary_base
+
+        return None
+
+    def get_binary_base(self, qemu_in_asm_log):
+        """
+        Try to get the base of the binary through a few different methods
+        """
+        maybe_base = self.get_binary_base_from_symbols(qemu_in_asm_log)
+        if maybe_base:
+            return maybe_base
+
+    def get_first_address_of_each_block(self, qemu_in_asm_log):
+        """
+        yield the first address in each block.
+        """
+        for m in re.finditer(self.first_block_addr_rexp, qemu_in_asm_log):
+            yield int(m.groups()[0], 16)
+
+    def parse_qemu_asm_visited_addresses(self, file_contents):
+        """
+        More extensive, but on larger binaries the output could be messive
+        """
+        rexp = re.compile("(0x[a-f0-9]+):")
+        for m in re.finditer(rexp, file_contents):
+            address_str = m.groups()[0]
+            address = int(address_str, 16)
+            yield address
+
+
+def highlight_qemu_visited_code_blocks():
+    dir_obj = askDirectory("Path to output from gather_qemu_coverage_data.sh",
+                           "select")
+
+    # this is set as the base address in
+    # ASSUMED_BASE_ADDRESS = 0x1800000
+    dir_path = dir_obj.toString()
+    all_visited_blocks = set()
+    current_image_base_int = currentProgram.getImageBase().getOffset()
+    qaa = QemuAsmAnalyzer()
+    for path in all_child_filepaths_gen(dir_path):
+        with open(path, "r") as f:
+            file_contents = f.read()
+        binary_base_address_in_log = qaa.get_binary_base(file_contents)
+        for log_addr in qaa.get_first_address_of_each_block(file_contents):
+            # adjust the address so that it matches up with what is in ghidra
+            log_offset = (log_addr - binary_base_address_in_log)
+            ghidra_addr = toAddr(log_offset + current_image_base_int)
+            code_block = get_code_block(ghidra_addr)
+            if code_block:
+                all_visited_blocks.append(code_block)
+
+    highlight_visited_and_unvisited_blocks(list(all_visited_blocks), [])
 
 
 if __name__ == "__main__":
-    hightlight_sancov_visited_code_blocks()
+    # hightlight_sancov_visited_code_blocks()
+    highlight_qemu_visited_code_blocks()

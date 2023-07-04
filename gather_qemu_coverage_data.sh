@@ -26,7 +26,7 @@ if [[ -z "${AFL_OUTPUT_DIR}" ]]; then
 	CAN_PROCEED=0
 fi
 
-if [[ $# -lt 2 ]]; then
+if [[ $# -lt 1 ]]; then
 	echo "$0"
 	echo "Usage: AFL_OUTPUT_DIR=<afl-output-dir> $0 <command args>"
 	echo ""
@@ -47,6 +47,7 @@ QUEUE_DIR=$(find $AFL_OUTPUT_DIR -type d -name 'queue')
 
 for i in $(find $QUEUE_DIR -type f); do
 	TMP_FILE=$(mktemp -p $TMP_DIR)
+	echo "$AFL_QEMU_TRACE -d in_asm -D $TMP_FILE $@ < $i"
 	$AFL_QEMU_TRACE -d in_asm -D $TMP_FILE $@ < $i
 done
 
