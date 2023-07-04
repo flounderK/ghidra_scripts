@@ -3,6 +3,7 @@
 CAN_PROCEED=1
 if [[ ! -z "${OUTPUT_DIR}" ]]; then
 	TMP_DIR="${OUTPUT_DIR}"
+	mkdir -p $TMP_DIR
 else
 	TMP_DIR=$(mktemp -d)
 fi
@@ -33,6 +34,9 @@ if [[ $# -lt 1 ]]; then
 	echo "      AFL_OUTPUT_DIR: output directory from afl++"
 	echo "      AFL_PATH: path to built afl++ project. not necessary if afl++ has been installed"
 	echo "      OUTPUT_DIR: path to output traces in"
+	echo ""
+	echo "Example:"
+	echo "      AFL_OUTPUT_DIR=/mnt/ramdisk/output/ OUTPUT_DIR=./output $0 ./fuzz_qemu"
 	CAN_PROCEED=0
 fi
 

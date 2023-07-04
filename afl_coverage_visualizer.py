@@ -371,11 +371,20 @@ def highlight_qemu_visited_code_blocks():
             ghidra_addr = toAddr(log_offset + current_image_base_int)
             code_block = get_code_block(ghidra_addr)
             if code_block:
-                all_visited_blocks.append(code_block)
+                all_visited_blocks.add(code_block)
 
     highlight_visited_and_unvisited_blocks(list(all_visited_blocks), [])
 
 
 if __name__ == "__main__":
-    # hightlight_sancov_visited_code_blocks()
-    highlight_qemu_visited_code_blocks()
+    choices = askChoices("Coverage Highlighter",
+                         "Select how you would like to highlight coverage",
+                         ["qemu_based_binary_only",
+                          "afl_sancov_guard"],
+                         ["Qemu-based (works for binary only)",
+                          "AFL SanCov"])
+    for choice in choices:
+        if choice.find("qemu_based_binary_only") != -1:
+            highlight_qemu_visited_code_blocks()
+        elif choice.find("afl_sancov_guard") != -1:
+            hightlight_sancov_visited_code_blocks()
