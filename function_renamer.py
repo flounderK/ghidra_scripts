@@ -1,14 +1,14 @@
-# Auto-rename functions across a file based on the string passed to a specific function. 
-# It should be noted that the script only works for functions whose names start with `FUN_`, 
+# Auto-rename functions across a file based on the string passed to a specific function.
+# It should be noted that the script only works for functions whose names start with `FUN_`,
 # to avoid overwriting user-named functions.
-# 
-# It should also be noted that the script will only work if the parameter type has been 
+#
+# It should also be noted that the script will only work if the parameter type has been
 # set correctly in the target function's signature. E.g. change `undefined8` to `char *`.
-# 
-# The script Is meant to be a quick and easy solution, and it does not actually emulate or 
+#
+# The script Is meant to be a quick and easy solution, and it does not actually emulate or
 # interpret pcode in a meaningful way, it just tracks writes to register and stack locations
-# and relies on the assumption that in c and c++ a given space on the stack should only ever 
-# be utilized for a single type E.g. a pointer on the stack that is used for a `char *` 
+# and relies on the assumption that in c and c++ a given space on the stack should only ever
+# be utilized for a single type E.g. a pointer on the stack that is used for a `char *`
 # should not ever be used to hold a `uint` unless there is a union containing the two types.
 # Keeping that in mind, the script can and will rename things incorrectly
 #@author Clifton Wolfe
@@ -26,6 +26,11 @@ from ghidra.program.util import FunctionSignatureFieldLocation
 from ghidra.program.model.symbol import SourceType
 from collections import namedtuple
 import string
+import logging
+
+log = logging.getLogger(__file__)
+log.addHandler(logging.StreamHandler())
+log.setLevel(logging.DEBUG)
 
 from __main__ import *
 
@@ -34,7 +39,7 @@ IncomingCallNode = namedtuple("IncomingCallNode", ["function", "call_address"])
 
 
 def get_location(func):
-    return FunctionSignatureFieldLocation(func.getProgram(), 
+    return FunctionSignatureFieldLocation(func.getProgram(),
                                           func.getEntryPoint())
 
 
@@ -47,7 +52,9 @@ class FunctionRenamer:
         self.addr_space = self.addr_fact.getDefaultAddressSpace()
         self.mem = currentProgram.getMemory()
         self.sym_tab = currentProgram.getSymbolTable()
-        self._stack_reg_offset = currentProgram.getRegister("sp").getOffset()
+        # NOTE: A better way to find this register needs to be found
+        # if it is even still needed
+        # self._stack_reg_offset = currentProgram.getRegister("sp").getOffset()
 
         self.ptr_size = self.addr_space.getPointerSize()
         if self.ptr_size == 4:
@@ -71,10 +78,10 @@ class FunctionRenamer:
         res = self._ifc.decompileFunction(func, timeout, self._monitor)
         high_func = res.getHighFunction()
         return high_func
-    
+
     def get_high_sym_for_param(self, func, param_num):
         """
-        Get the the high sym for param index 
+        Get the the high sym for param index
         """
         high_func = self.get_high_function(func)
         prototype = high_func.getFunctionPrototype()
@@ -84,7 +91,6 @@ class FunctionRenamer:
         high_sym_param = prototype.getParam(param_num)
         return high_sym_param
 
-    
     def get_callsites_for_function(self, func):
         location = get_location(func)
         references = list(ReferenceUtils.getReferenceAddresses(location, self._monitor))
@@ -96,7 +102,7 @@ class FunctionRenamer:
                 continue
             incoming_calls.append(IncomingCallNode(callerFunction, call_address))
         return incoming_calls
-    
+
     def get_previous_var_stack_offset_for_calling_function(self):
         pass
 
@@ -133,10 +139,10 @@ class FunctionRenamer:
                 print("skipping %s" % current_function_name)
                 continue
             # print("param def '%s'" % str(param_def))
-            # there is a weird roundabout way of looking stuff up here because there is a varnode being compared 
+            # there is a weird roundabout way of looking stuff up here because there is a varnode being compared
             # with an arbitrary stackpointer offset
             # is_stackpointer_offset = any([i for i in param_def.getInputs() if i.isRegister() and i.getOffset() == self._stack_reg_offset])
-            # for whatever reason, the created varnode here gets put into unique space, not stack space, 
+            # for whatever reason, the created varnode here gets put into unique space, not stack space,
             if len(copied_values) == 0:
                 print("copied values for %s was empty" % current_function_name)
             possible_function_names = [self.read_string_at(i) for i in copied_values]
@@ -149,22 +155,41 @@ class FunctionRenamer:
             if best_function_name is not None and current_function_name != best_function_name and \
                 current_function_name.startswith("FUN_"):  # so that other user defined function names don't get overwritten
                 print("changing name from %s to %s" % (current_function_name, best_function_name))
-                calling_func_node.setName(best_function_name, SourceType.USER_DEFINED)    
+                calling_func_node.setName(best_function_name, SourceType.USER_DEFINED)
 
         for i in additional_analysis_needed_funcs:
             print("\n** %s likely requires manual analysis or decompilation fixups" % i.getName())
 
 
     def read_string_at(self, address, maxsize=256):
+        """
+        Tries to extract strings from a binary
+        """
         while maxsize > 0:
+            # This is supposed to handle the case of a string being very
+            # close to the end of a memory region and the maxsize being larger
+            # than the remainder
             try:
                 string_bytearray = bytearray(getBytes(address, maxsize))
-                extracted_string = string_bytearray[:string_bytearray.find(b'\x00')].decode()
-                return extracted_string
             except:
                 maxsize -= 1
+                continue
+
+            terminator_index = string_bytearray.find(b'\x00')
+            extracted_string_bytes = string_bytearray[:terminator_index]
+            try:
+                decoded_extracted_string = extracted_string_bytes.decode()
+            except:
+                log.warning("Unable to decode as string")
+                break
+            return decoded_extracted_string
+
+        return ""
 
     def get_pcode_op_copy_operand(self, pcode_ops, ptrsub_op):
+        """
+        Somewhat naive backslice
+        """
         if ptrsub_op.opcode == PcodeOpAST.COPY:
             return [self.addr_space.getAddress(ptrsub_op.getInput(0).getOffset())]
 
@@ -186,10 +211,10 @@ class FunctionRenamer:
             string_address = self.addr_space.getAddress(op.getInput(0).getOffset())
             copied_values.append(string_address)
         return copied_values
-    
+
     def sort_function_name_candidates(self, function_name_candidates, allow_unprintable=False):
         """
-        Return a sorted list of function 
+        Return a sorted list of function
         """
         possible_function_names = [i for i in function_name_candidates if i is not None and i.find(" ") == -1]
         if len(possible_function_names) == 0:
@@ -202,15 +227,15 @@ class FunctionRenamer:
         punctuation_set = set(['[', '\\', ']', '^', '`', '!', '"', '#', "'", '+', '-', '/', ';', '{', '|', '=', '}', ])
         possible_function_names = list(set(possible_function_names))
         if allow_unprintable is False:
-            possible_function_names = [i for i in possible_function_names if set(i).issubset(printable_set)]   
+            possible_function_names = [i for i in possible_function_names if set(i).issubset(printable_set)]
         possible_function_names = [i for i in possible_function_names if len(i) >= 3]
         # punctuation_set = set(string.punctuation)
         possible_function_names.sort(key=lambda a: (
             not(set(a).issubset(printable_set)),          # lower priority of strings that aren't printable by the most possible
             not(len(a) >= 3),                             # strings that are really short are lowered by a large amount
             len([i for i in a if i in punctuation_set]),  # lower priority of strings with lots of punctuation
-            a.find(' ') != -1,                            # spaces in the string are acceptable, but definitely aren't the 
-                                                          # function name 
+            a.find(' ') != -1,                            # spaces in the string are acceptable, but definitely aren't the
+                                                          # function name
             contains_path_markers(a),                     # lower priority of strings that are file paths, but use them as as
                                                           # a last resort
         ))
@@ -218,17 +243,17 @@ class FunctionRenamer:
         # for i in range(10 if len(possible_function_names) > 10 else len(possible_function_names)):
         #     print("%d: %s" % (i, possible_function_names[i]))
         return possible_function_names
-    
+
     def choose_best_function_name(self, function_name_candidates):
         function_name_candidates = self.sort_function_name_candidates(function_name_candidates)
         return function_name_candidates[0]
-    
+
     def get_pcode_for_function(self, func):
         if isinstance(func, str):
             func = [i for i in self.fm.getFunctions(1) if i.getName() == func][0]
         hf = self.get_high_function(func)
         return list(hf.getPcodeOps())
-    
+
     def get_data_accesses_from_function(self, func):
         pcode_ops = self.get_pcode_for_function(func)
         stackspace_id = self.addr_fact.getStackSpace().spaceID
@@ -248,9 +273,9 @@ class FunctionRenamer:
         maybe_strings = [self.read_string_at(i) for i in valid_data_addresses]
         maybe_strings = [i for i in maybe_strings if i != '']
         chosen_function_name = self.choose_best_function_name(maybe_strings)
-        func.setName(chosen_function_name, SourceType.USER_DEFINED) 
+        func.setName(chosen_function_name, SourceType.USER_DEFINED)
 
-    
+
 
 def contains_path_markers(s):
     return s.find("\\") != -1 or s.find("/") != -1
@@ -262,7 +287,7 @@ def walk_pcode_until_handlable_op(varnode, maxcount=20):
     # of the pcode ast, if not emulation, as registers are assigned different types
     while param_def.opcode not in [PcodeOpAST.PTRSUB, PcodeOpAST.COPY] and maxcount > 0:
         if param_def.opcode == PcodeOpAST.CAST:
-            varnode = param_def.getInput(0)    
+            varnode = param_def.getInput(0)
         else:
             varnode = param_def.getInput(1)
         param_def = varnode.getDef()
