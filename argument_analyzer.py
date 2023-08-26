@@ -127,12 +127,15 @@ class FunctionArgumentAnalyzer:
             current_function_name = calling_func_node.getName()
             log.info("[+] Identifying call ops in %s", str(current_function_name))
             hf = self.get_high_function(calling_func_node)
+            if hf is None:
+                log.warning("[-] Failed to get a High function, unable to decompile")
+                continue 
             pcode_ops = list(hf.getPcodeOps())
             func_address = func.getEntryPoint()
 
             for op in pcode_ops:
                 if op.opcode == PcodeOpAST.CALLIND:
-                    log.warning("[*] skipping a CALLIND at %s", str(op.seqnum.target))
+                    # log.warning("[*] skipping a CALLIND at %s", str(op.seqnum.target))
                     self.dropped_callind_ops.append(op)
                     continue
                 if op.opcode != PcodeOpAST.CALL:
