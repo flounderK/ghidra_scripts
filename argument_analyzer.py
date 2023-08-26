@@ -32,7 +32,7 @@ def get_location(func):
                                           func.getEntryPoint())
 
 
-class FunctionRenamer:
+class FunctionArgumentAnalyzer:
     def __init__(self, currentProgram):
         self.fm = currentProgram.getFunctionManager()
         self.dtm = currentProgram.getDataTypeManager()
@@ -56,6 +56,8 @@ class FunctionRenamer:
         self._ifc = DecompInterface()
         self._ifc.setOptions(self._decomp_options)
         self.refman = currentProgram.getReferenceManager()
+        self.dropped_data_refs = []
+        self.dropped_callind_ops = []
 
     def get_high_function(self, func, timeout=60):
         """
@@ -79,54 +81,99 @@ class FunctionRenamer:
         return high_sym_param
 
     def get_callsites_for_address(self, address):
+        """
+        Iterate over all of the references to an address and pick out the ones
+        that can be associated with a call to the provided address
+        """
         # location = get_location(func)
         # references = list(ReferenceUtils.getReferenceAddresses(location, self._monitor))
         references = self.refman.getReferencesTo(address)
         incoming_calls = []
         for ref in references:
-            # self._monitor.checkCanceled()
             from_address = ref.getFromAddress()
-            # TODO: This doesn't handle CALCULATED_CALLs, or DATA/EXTERNAL
-            # TODO: refs, which include thunks and vtables/embedded func ptrs
+            if ref.referenceType == RefType.DATA:
+                self.dropped_data_refs.append(ref)
+                log.warning("[-] Dropping a DATA ref at %s", str(from_address))
+                continue
+            elif ref.referenceType == RefType.EXTERNAL_REF:
+                continue
+            elif ref.referenceType == FlowType.COMPUTED_CALL:
+                # FIXME: this potentially introduces duplication of some work here
+                incoming_calls.extend(self.get_callsites_for_address(from_address))
+                continue
+
             callerFunction = self.fm.getFunctionContaining(from_address)
             if callerFunction is None:
-                log.warning("Drop ref %s at %s" % (str(ref.referenceType),
-                                                   str(from_address)))
+                log.warning("[-] Drop ref %s at %s" % (str(ref.referenceType),
+                                                       str(from_address)))
                 continue
-            incoming_calls.append(IncomingCallNode(callerFunction, call_address))
+            incoming_calls.append(IncomingCallNode(callerFunction, from_address))
         return incoming_calls
 
-    def backslice_for_func_arg(self, func, param_index):
+    def get_pcode_ops_calling_func(self, func):
         incoming_calls = self.get_callsites_for_address(func.getEntryPoint())
         additional_analysis_needed_funcs = set()
         incoming_functions = set([i.function for i in incoming_calls])
-        backslice_map = {}
+        func_name = func.getName()
+
+        call_ops = []
+        # iterate over functions that call the passed in function
         for calling_func_node in incoming_functions:
             current_function_name = calling_func_node.getName()
-            # calling_func_node = incoming_calls[1]
             hf = self.get_high_function(calling_func_node)
             pcode_ops = list(hf.getPcodeOps())
             func_address = func.getEntryPoint()
 
-            # TODO: rework call_ops filter to accept things of the same name
-            call_ops = [i for i in pcode_ops if i.opcode == PcodeOpAST.CALL and i.getInput(0).getAddress() == func_address]
+            for op in pcode_ops:
+                if op.opcode == PcodeOpAST.CALLIND:
+                    log.warning("[*] skipping a CALLIND at %s", str(op.seqnum.target))
+                    self.dropped_callind_ops.append(op)
+                    continue
+                if op.opcode != PcodeOpAST.CALL:
+                    continue
+
+                # First input of CALL op is the address being called
+                called_func_address = op.getInput(0).getAddress()
+                called_func = getFunctionContaining(called_func_address)
+                if called_func is None:
+                    log.warning("[-] A CALL op is calling into an undefined function (%s) from (%s)",
+                                str(called_func_address), str(op.seqnum.target))
+                    continue
+
+                # allow a little wiggle room for thunks by allowing a match by name too
+                if called_func_address != func_address and called_func.getName() != func_name:
+                    continue
+                call_ops.append(op)
+
+
+            # call_ops = [i for i in pcode_ops if i.opcode == PcodeOpAST.CALL and i.getInput(0).getAddress() == func_address]
             if len(call_ops) == 0:
-                log.warning("no call found for %s" % current_function_name)
+                # if no call was found, it was an indirect reference
+                log.warning("[-] No call found for %s" % current_function_name)
                 continue
+        return call_ops
 
-            copied_values = []
-            param_def = None
-            for call_op in call_ops:
-                param_varnode = call_op.getInput(param_index+1)
-                if param_varnode is None:
-                    continue
+    def get_pcode_calling_ops_by_func_name(self, name):
+        """
+        Get all of the pcode ops that specify a call to functions named @name
+        """
+        call_ops = []
+        for func in self.get_funcs_by_name(name):
+            call_ops.extend(self.get_pcode_ops_calling_func(func))
+        return list(set(call_ops))
 
-                backslice_ops = DecompilerUtils.getBackwardSliceToPCodeOps(param_varnode)
-                if backslice_ops is None:
-                    continue
-                backslice_map[call_op.seqnum.target] = list(backslice_ops)
+    def get_backslice_ops_for_param_ind(self, call_op, param_ind):
+        param_def = None
+        param_varnode = call_op.getInput(param_index+1)
+        backslice_ops = []
+        if param_varnode is None:
+            return backslice_ops
 
-        return backslice_map
+        backslice_ops = DecompilerUtils.getBackwardSliceToPCodeOps(param_varnode)
+        if backslice_ops is None:
+            return []
+        # backslice_map[call_op.seqnum.target] = list(backslice_ops)
+        return list(backslice_ops)
 
 
     def read_string_at(self, address, maxsize=256):
@@ -149,7 +196,9 @@ class FunctionRenamer:
                 decoded_extracted_string = extracted_string_bytes.decode()
             except:
                 log.warning("Unable to decode as string")
-                break
+                maxsize -= 1
+                continue
+
             return decoded_extracted_string
 
         return ""
@@ -174,7 +223,9 @@ class FunctionRenamer:
 
     def get_pcode_op_copy_operand(self, pcode_ops, ptrsub_op):
         """
-        Somewhat naive backslice
+        NOTE: Currently unused
+        An initial attempt at a custom backslice that uses the stackspace of
+        a function to identify sources and sinks for varnodes.
         """
         if ptrsub_op.opcode == PcodeOpAST.COPY:
             return [self.addr_space.getAddress(ptrsub_op.getInput(0).getOffset())]
@@ -198,10 +249,13 @@ class FunctionRenamer:
             copied_values.append(string_address)
         return copied_values
 
+    def get_funcs_by_name(self, name):
+        return [i for i in self.fm.getFunctions(1) if i.name == name]
+
 
 def walk_pcode_until_handlable_op(varnode, maxcount=20):
     """
-    Backslice only handling pcode PTRSUB and COPY
+    Naiive Backslice that iterates through pcode ops until a knows op is found
     """
     param_def = varnode.getDef()
     # handling much more than a PTRSUB or COPY will likely require an actually intelligent traversal
@@ -217,5 +271,3 @@ def walk_pcode_until_handlable_op(varnode, maxcount=20):
     return param_def
 
 
-# from function_renamer import *
-# fr = FunctionRenamer(currentProgram)
