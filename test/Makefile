@@ -17,7 +17,7 @@ endif
 CDEBUG=-g -O0
 CFLAGS=-Iinclude -Isrc -shared -fPIC
 
-BINARY=vulns.so
+BINARY=testlib.so
 
 BUILD_DIR=build
 DEBUG_DIR=debug

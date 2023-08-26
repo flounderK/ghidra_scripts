@@ -27,3 +27,29 @@ int unconstrained_stack_read_overflow(size_t count){
 }
 
 
+int variable_printf_arg_1(int choice) {
+    const char* formatstring = NULL;
+    switch (choice) {
+        case 1: {
+            formatstring = "One chosen\n";
+            break;
+        }
+        case 2: {
+            formatstring = "Two chosen\n";
+            break;
+        }
+        case 3: {
+            formatstring = "Three chosen\n";
+            break;
+        }
+        default: {
+            formatstring = "DEFAULT\n";
+            break;
+        }
+    }
+
+    printf(formatstring);
+    return 0;
+}
+
+
