@@ -5,10 +5,6 @@ from ghidra.python import PythonScript
 from argument_analyzer import *
 import logging
 
-log = logging.getLogger(__file__)
-log.addHandler(logging.StreamHandler())
-log.setLevel(logging.DEBUG)
-
 from __main__ import *
 
 
