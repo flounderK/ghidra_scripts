@@ -87,6 +87,7 @@ class FunctionArgumentAnalyzer:
         """
         # location = get_location(func)
         # references = list(ReferenceUtils.getReferenceAddresses(location, self._monitor))
+        log.info("[+] Finding callsites for %s", str(address))
         references = self.refman.getReferencesTo(address)
         incoming_calls = []
         for ref in references:
@@ -108,9 +109,13 @@ class FunctionArgumentAnalyzer:
                                                        str(from_address)))
                 continue
             incoming_calls.append(IncomingCallNode(callerFunction, from_address))
+        log.info("[+] Found %d callsites", len(incoming_calls))
         return incoming_calls
 
     def get_pcode_ops_calling_func(self, func):
+        """
+        Get all of the pcode ops that call the function @func
+        """
         incoming_calls = self.get_callsites_for_address(func.getEntryPoint())
         additional_analysis_needed_funcs = set()
         incoming_functions = set([i.function for i in incoming_calls])
@@ -120,6 +125,7 @@ class FunctionArgumentAnalyzer:
         # iterate over functions that call the passed in function
         for calling_func_node in incoming_functions:
             current_function_name = calling_func_node.getName()
+            log.info("[+] Identifying call ops in %s", str(current_function_name))
             hf = self.get_high_function(calling_func_node)
             pcode_ops = list(hf.getPcodeOps())
             func_address = func.getEntryPoint()
@@ -203,7 +209,42 @@ class FunctionArgumentAnalyzer:
 
         return ""
 
+    def is_const_pcode_op(self, op):
+        """
+        Check to see if all of the inputs for an operation are constants
+        """
+        return any([vn for vn in op.getInputs() if not vn.isConstant()])
+
+
+    # def is_complex_param_source(self, ):
+
+    def resolve_pcode_call_parameter_varnode(self, call_op, param_index):
+        raise NotImplementedError("Not fully implemented")
+        param_varnode = call_op.getInput(param_index+1)
+        if param_varnode is None:
+            return
+        backslice_ops = DecompilerUtils.getBackwardSliceToPCodeOps(param_varnode)
+        if backslice_ops is None:
+            backslice_ops = []
+
+        backslice_ops = list(backslice_ops)
+        # check for empty list
+        if not backslice_ops:
+            # this means that there was a varnode created, it just wasn't
+            # used in any ops. Happens with unmodified params
+            # and const params (at least on i386)
+            backslice = DecompilerUtils.getBackwardSlice(param_varnode)
+            # FIXME: actually need to try to identify which varnode it is
+            return backslice[0]
+
+
+        # TODO: actually resolve the varnode
+        return
+
     def get_pcode_for_function(self, func):
+        """
+        Get Pcode ops for the function @func
+        """
         hf = self.get_high_function(func)
         return list(hf.getPcodeOps())
 
@@ -252,10 +293,51 @@ class FunctionArgumentAnalyzer:
     def get_funcs_by_name(self, name):
         return [i for i in self.fm.getFunctions(1) if i.name == name]
 
+    def has_complex_backslice(self, varnode):
+        """
+        Try to determine whether or not the backslice for the given varnode
+        is complex or not. Complex is arbitrarily defined as "whether or not
+        this code can figure out all of the possible values for it"
+        """
+        # a constant varnode should always be simple
+        if varnode.isConstant():
+            return False
+
+        backslice = DecompilerUtils.getBackwardSlice(varnode)
+        if backslice is None:
+            backslice = []
+
+        backslice = list(backslice)
+        # check for empty list
+        if not backslice:
+            log.error("[!] There were no varnodes found for a backwards slice")
+            return True
+
+        # TODO: There are definitely other things that can't be resolved
+        for vn in backslice:
+            if vn.isRegister():
+                return True
+
+        return False
+
+    def filter_calls_with_simple_param(self, call_ops, param_index):
+        """
+        Given a list of call_ops for a function, return the ones that
+        have a sufficiently complex-enough backslice
+        """
+        filtered_ops = []
+        for op in call_ops:
+            varnode = op.getInput(param_index+1)
+            if not self.has_complex_backslice(varnode):
+                continue
+            filtered_ops.append(op)
+        return filtered_ops
+
 
 def walk_pcode_until_handlable_op(varnode, maxcount=20):
     """
-    Naiive Backslice that iterates through pcode ops until a knows op is found
+    Naiive Backslice-like func that follows varnode definitions
+    until a knows op is found
     """
     param_def = varnode.getDef()
     # handling much more than a PTRSUB or COPY will likely require an actually intelligent traversal
