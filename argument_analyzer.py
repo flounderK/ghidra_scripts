@@ -316,8 +316,9 @@ class FunctionArgumentAnalyzer:
             log.error("[!] There were no varnodes found for a backwards slice")
             return True
 
-        # TODO: There are definitely other things that can't be resolved
+        
         for vn in backslice:
+            # FIXME: This check is insufficient
             if vn.isRegister():
                 return True
 
