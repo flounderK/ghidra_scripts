@@ -16,6 +16,7 @@ endif
 
 CDEBUG=-g -O0
 CFLAGS=-Iinclude -Isrc -shared -fPIC
+RELEASE_FLAGS=-O2
 
 BINARY=testlib.so
 
@@ -38,6 +39,7 @@ $(OBJ)/$(DEBUG_DIR)/%.o: %.c
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
+$(OBJ)/$(RELEASE_DIR)/%.o: CFLAGS += $(RELEASE_FLAGS)
 $(OBJ)/$(RELEASE_DIR)/%.o: %.c
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) -c -o $@ $<
