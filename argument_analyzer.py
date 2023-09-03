@@ -27,11 +27,6 @@ from __main__ import *
 IncomingCallNode = namedtuple("IncomingCallNode", ["function", "call_address"])
 
 
-def get_location(func):
-    return FunctionSignatureFieldLocation(func.getProgram(),
-                                          func.getEntryPoint())
-
-
 class FunctionArgumentAnalyzer:
     def __init__(self, currentProgram):
         self.fm = currentProgram.getFunctionManager()
@@ -85,8 +80,6 @@ class FunctionArgumentAnalyzer:
         Iterate over all of the references to an address and pick out the ones
         that can be associated with a call to the provided address
         """
-        # location = get_location(func)
-        # references = list(ReferenceUtils.getReferenceAddresses(location, self._monitor))
         log.info("[+] Finding callsites for %s", str(address))
         references = self.refman.getReferencesTo(address)
         incoming_calls = []
