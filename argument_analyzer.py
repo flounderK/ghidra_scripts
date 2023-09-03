@@ -362,6 +362,66 @@ class FunctionArgumentAnalyzer:
                     to_visit_stack.add(called_func)
         return list(visited_functions)
 
+    def get_called_funcs_with_param_as_argument(self, func, param_ind):
+        """
+        Identify any function calls in the specified function @func that
+        take the parameter at @param_ind (or an equivalent) as a parameter.
+        """
+
+        high_func = self.get_high_function(func)
+        proto = high_func.getFunctionPrototype()
+        num_params = proto.getNumParams()
+        param_high_sym = proto.getParam(param_ind)
+        high_var = param_high_sym.getHighVariable()
+        param_varnodes = set(high_var.getInstances())
+        pcode_ops = self.get_pcode_for_function(func)
+
+        # TODO: this might be best as its own function
+        # collect all of the varnodes that are the param or a direct
+        # cast/copy of it
+        added_varnode = True
+        while added_varnode is True:
+            added_varnode = False
+            for op in pcode_ops:
+                if op.opcode not in [PcodeOpAST.CAST, PcodeOpAST.COPY]:
+                    continue
+                # only one input possible
+                inp = op.getInput(0)
+                outp = op.getOutput()
+                if inp in param_varnodes and outp not in param_varnodes:
+                    param_varnodes.add(outp)
+                    added_varnodes = True
+                    # don't break here so that all of the ops before this
+                    # in the list don't have to be re-checked until
+                    # the next pass
+
+        functions_taking_param_as_argument = set()
+        for op in pcode_ops:
+            # TODO: probably need to handle CALLIND here
+            if op.opcode != PcodeOpAST.CALL:
+                continue
+            inputs_raw = list(op.getInputs())
+            called_addr_varnode = inputs_raw[0]
+            # skip the first input because it is the call address
+            inputs = inputs_raw[1:]
+
+            # TODO: determine if this actually saves any time
+            # filter out call ops that don't have a param varnode
+            input_set = set(inputs)
+            if not param_varnodes.intersection(input_set):
+                continue
+
+            for ind, param_inp in enumerate(inputs):
+                if param_inp not in param_varnodes:
+                    continue
+
+                called_func = getFunctionContaining(called_addr_varnode.getAddress())
+                if called_func is None:
+                    log.warning("Calling a function that isn't defined")
+                    continue
+                functions_taking_param_as_argument.add((called_func, ind))
+        return list(functions_taking_param_as_argument)
+
 
 def walk_pcode_until_handlable_op(varnode, maxcount=20):
     """
