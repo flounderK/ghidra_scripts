@@ -35,17 +35,7 @@ class FunctionArgumentAnalyzer:
         self.addr_space = self.addr_fact.getDefaultAddressSpace()
         self.mem = currentProgram.getMemory()
         self.sym_tab = currentProgram.getSymbolTable()
-        # NOTE: A better way to find this register needs to be found
-        # if it is even still needed
-        # self._stack_reg_offset = currentProgram.getRegister("sp").getOffset()
 
-        self.ptr_size = self.addr_space.getPointerSize()
-        if self.ptr_size == 4:
-            self._get_ptr_size = self.mem.getInt
-        elif self.ptr_size == 8:
-            self._get_ptr_size = self.mem.getLong
-
-        self._null = self.addr_space.getAddress(0)
         self._decomp_options = DecompileOptions()
         self._monitor = ConsoleTaskMonitor()
         self._ifc = DecompInterface()
@@ -148,7 +138,6 @@ class FunctionArgumentAnalyzer:
                 call_ops.append(op)
 
 
-            # call_ops = [i for i in pcode_ops if i.opcode == PcodeOpAST.CALL and i.getInput(0).getAddress() == func_address]
             if len(call_ops) == 0:
                 # if no call was found, it was an indirect reference
                 log.warning("[-] No call found for %s" % current_function_name)
@@ -174,7 +163,6 @@ class FunctionArgumentAnalyzer:
         backslice_ops = DecompilerUtils.getBackwardSliceToPCodeOps(param_varnode)
         if backslice_ops is None:
             return []
-        # backslice_map[call_op.seqnum.target] = list(backslice_ops)
         return list(backslice_ops)
 
 
@@ -210,9 +198,6 @@ class FunctionArgumentAnalyzer:
         Check to see if all of the inputs for an operation are constants
         """
         return any([vn for vn in op.getInputs() if not vn.isConstant()])
-
-
-    # def is_complex_param_source(self, ):
 
     def resolve_pcode_call_parameter_varnode(self, call_op, param_index):
         raise NotImplementedError("Not fully implemented")
