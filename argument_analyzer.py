@@ -338,6 +338,10 @@ class FunctionArgumentAnalyzer:
         return filtered_ops
 
     def get_descendant_called_funcs(self, func):
+        """
+        Attempt to get every function that the specified function @func
+        calls both directly and indirectly
+        """
         visited_functions = set()
         to_visit_stack = set([func])
         call_ops_set = set([PcodeOpAST.CALLIND, PcodeOpAST.CALL])
@@ -358,6 +362,11 @@ class FunctionArgumentAnalyzer:
                 # inp 0 is called addr
                 called_addr = op.getInput(0).getAddress()
                 called_func = getFunctionContaining(called_addr)
+                if called_func is None:
+                    log.warning("Call to unknown function %s -> %s",
+                                op.seqnum.target,
+                                called_addr)
+                    continue
                 if called_func not in visited_functions:
                     to_visit_stack.add(called_func)
         return list(visited_functions)
