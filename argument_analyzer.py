@@ -337,7 +337,7 @@ class FunctionArgumentAnalyzer:
             filtered_ops.append(op)
         return filtered_ops
 
-    def get_decendant_called_funcs(self, func):
+    def get_descendant_called_funcs(self, func):
         visited_functions = set()
         to_visit_stack = set([func])
         call_ops_set = set([PcodeOpAST.CALLIND, PcodeOpAST.CALL])
