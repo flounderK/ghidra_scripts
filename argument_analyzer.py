@@ -129,7 +129,7 @@ class FunctionArgumentAnalyzer:
             hf = self.get_high_function(calling_func_node)
             if hf is None:
                 log.warning("[-] Failed to get a High function, unable to decompile")
-                continue 
+                continue
             pcode_ops = list(hf.getPcodeOps())
             func_address = func.getEntryPoint()
 
@@ -316,7 +316,7 @@ class FunctionArgumentAnalyzer:
             log.error("[!] There were no varnodes found for a backwards slice")
             return True
 
-        
+
         for vn in backslice:
             # FIXME: This check is insufficient
             if vn.isRegister():
@@ -336,6 +336,31 @@ class FunctionArgumentAnalyzer:
                 continue
             filtered_ops.append(op)
         return filtered_ops
+
+    def get_decendant_called_funcs(self, func):
+        visited_functions = set()
+        to_visit_stack = set([func])
+        call_ops_set = set([PcodeOpAST.CALLIND, PcodeOpAST.CALL])
+        while to_visit_stack:
+            fun = to_visit_stack.pop()
+            # immediately add it to visited so that it
+            # can't be processed twice
+            visited_functions.add(fun)
+            pcode_ops = self.get_pcode_for_function(fun)
+            call_ops = [i for i in pcode_ops if i.opcode in call_ops_set]
+            for op in call_ops:
+                if op.opcode == PcodeOpAST.CALLIND:
+                    # TODO: handle callinds
+                    continue
+                if op.opcode != PcodeOpAST.CALL:
+                    raise NotImplementedError("Unhandled opcode encountered")
+
+                # inp 0 is called addr
+                called_addr = op.getInput(0).getAddress()
+                called_func = getFunctionContaining(called_addr)
+                if called_func not in visited_functions:
+                    to_visit_stack.add(called_func)
+        return list(visited_functions)
 
 
 def walk_pcode_until_handlable_op(varnode, maxcount=20):
