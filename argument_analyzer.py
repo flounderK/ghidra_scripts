@@ -13,6 +13,12 @@ from ghidra.program.util import FunctionSignatureFieldLocation
 from ghidra.program.model.symbol import SourceType
 from ghidra.program.model.symbol import FlowType, RefType
 from ghidra.app.decompiler.component import DecompilerUtils
+from ghidra.program.model.symbol import SourceType
+from ghidra.program.model.listing.Function import FunctionUpdateType
+from ghidra.program.model.listing import ReturnParameterImpl
+from ghidra.program.model.listing import ParameterImpl
+# eventually would like to use this
+# from ghidra.app.cmd.function import ApplyFunctionSignatureCmd
 from collections import namedtuple
 import string
 import logging
@@ -408,6 +414,66 @@ class FunctionArgumentAnalyzer:
                     continue
                 functions_taking_param_as_argument.add((called_func, ind))
         return list(functions_taking_param_as_argument)
+
+    def realize_func_sig_from_op(self, call_op):
+        """
+        Initial attempt
+        @call_op PcodeOpAST CALL op
+        compare the number of arguments between a decompiled
+        function and the function before decompilation.
+        This is kind of a discount ApplyFunctionSignatureCmd
+        """
+
+        if call_op.opcode != PcodeOpAST.CALL:
+            return
+
+        func_addr = call_op.getInput(0).getAddress()
+        func = getFunctionContaining(func_addr)
+        if func is None:
+            log.warning("Call to non-existant function %s -> %s",
+                        call_op.seqnum.target,
+                        func_addr)
+            return
+        log.info("Propagating arguments for %s", func.getName())
+
+        # remove one input for called address
+        op_arg_count = call_op.getNumInputs() - 1
+        expected_param_count = func.getParameterCount()
+        high_func = self.get_high_function(func)
+        proto = high_func.getFunctionPrototype()
+        proto_param_count = proto.getNumParams()
+        # TODO: handle return type differences
+        needs_return_fixup = False
+        if func.returnType != proto.returnType:
+            needs_return_fixup = True
+
+        if expected_param_count >= proto_param_count:
+            return
+        log.info("expected param %d proto param %d",
+                 expected_param_count,
+                 proto_param_count)
+
+        # TODO: handle additional arguments passed into the call
+        # TODO: in the call_op
+        num_params_to_use = proto_param_count
+
+        params = []
+        for i in range(proto_param_count):
+            high_sym = proto.getParam(i)
+            # TODO: maybe save comments too
+            param_def = ParameterImpl(
+                            high_sym.getName(),
+                            high_sym.getDataType(),
+                            currentProgram)
+            params.append(param_def)
+
+        # TODO: dynamically choose return type
+        return_param = ReturnParameterImpl(proto.getReturnType(),
+                                           currentProgram)
+        func.updateFunction(func.callingConventionName,
+                            return_param, params,
+                FunctionUpdateType.DYNAMIC_STORAGE_FORMAL_PARAMS,
+                            False, SourceType.USER_DEFINED)
 
 
 def walk_pcode_until_handlable_op(varnode, maxcount=20):
