@@ -249,7 +249,7 @@ class FunctionArgumentAnalyzer:
                 valid_data_addresses.append(addr)
         return valid_data_addresses
 
-    def get_pcode_op_copy_operand(self, pcode_ops, ptrsub_op):
+    def _get_pcode_op_copy_operand(self, pcode_ops, ptrsub_op):
         """
         NOTE: Currently unused
         An initial attempt at a custom backslice that uses the stackspace of
