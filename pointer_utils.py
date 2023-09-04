@@ -7,6 +7,7 @@ from ghidra.program.flatapi import FlatProgramAPI
 from ghidra.python import PythonScript
 from ghidra.program.model.symbol import SourceType
 from ghidra.program.model.address import GenericAddress, Address
+
 import string
 import re
 import struct
@@ -126,13 +127,14 @@ class PointerUtils:
         """
         Find all locations where a specific pointer is embedded in memory
         """
-        if isinstance(pointer, GenricAddress):
+        if isinstance(pointer, GenericAddress):
             pointer = pointer.getOffset()
 
         pointer_bytes = struct.pack(self.ptr_pack_code, pointer)
         pointer_pattern = re.escape(pointer_bytes)
         address_rexp = re.compile(pointer_pattern, re.DOTALL | re.MULTILINE)
-        return self.search_memory_for_rexp(address_rexp)
+        match_addrs, _ = self.search_memory_for_rexp(address_rexp)
+        return match_addrs
 
     def search_memory_for_rexp(self, rexp, save_match_objects=True):
         """
