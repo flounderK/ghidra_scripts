@@ -503,7 +503,6 @@ class FunctionArgumentAnalyzer:
         params = []
         for i in range(proto_param_count):
             high_sym = proto.getParam(i)
-            # TODO: maybe save comments too
             param_def = ParameterImpl(
                             high_sym.getName(),
                             high_sym.getDataType(),
