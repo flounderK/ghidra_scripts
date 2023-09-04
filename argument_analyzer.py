@@ -17,6 +17,9 @@ from ghidra.program.model.symbol import SourceType
 from ghidra.program.model.listing.Function import FunctionUpdateType
 from ghidra.program.model.listing import ReturnParameterImpl
 from ghidra.program.model.listing import ParameterImpl
+from ghidra.program.model.data import PointerDataType
+from ghidra.program.database.data import StructureDB
+from ghidra.program.database.data import PointerDB
 # eventually would like to use this
 # from ghidra.app.cmd.function import ApplyFunctionSignatureCmd
 from collections import namedtuple, defaultdict
@@ -365,6 +368,7 @@ class FunctionArgumentAnalyzer:
         proto = high_func.getFunctionPrototype()
         num_params = proto.getNumParams()
         param_high_sym = proto.getParam(param_ind)
+        datatype = param_high_sym.getDataType()
         high_var = param_high_sym.getHighVariable()
         param_varnodes = set(high_var.getInstances())
         pcode_ops = self.get_pcode_for_function(func)
@@ -388,9 +392,35 @@ class FunctionArgumentAnalyzer:
         while added_varnode is True:
             added_varnode = False
             for op in pcode_ops:
-                if op.opcode not in [PcodeOpAST.CAST, PcodeOpAST.COPY]:
+                if op.opcode not in [PcodeOpAST.CAST, PcodeOpAST.COPY,
+                                     PcodeOpAST.PTRSUB]:
                     continue
-                # only one input possible
+                # Checking for a few things that would indicate that a
+                # PTRSUB op was added (see note above). Should that
+                # optimization be removed upstream then this can be cut
+                if op.opcode == PcodeOpAST.PTRSUB:
+                    offset_vn = op.getInput(1)
+                    if not offset_vn.isConstant():
+                        continue
+                    if offset_vn.getOffset() != 0:
+                        continue
+                    if not isinstance(datatype, PointerDataType):
+                        continue
+                    pointed_to_dt = datatype.getDataType()
+                    if not isinstance(pointed_to_dt, StructureDB):
+                        continue
+                    first_field = pointed_to_dt.getComponentAt(0)
+                    first_field_dt = first_field.dataType
+                    # TODO: this comparison should actually be against the
+                    # TODO: datatype of the parameter this value is being
+                    # TODO: `CAST`'d into, but that will get very expensive
+                    # TODO: very quickly, so focusing on the specific case
+                    # TODO: that this is meant to handle
+                    if not isinstance(first_field_dt, PointerDB):
+                        continue
+
+                # only one input possible for COPY and CAST, PTRSUB should
+                # always have the varnode that is variable as the first
                 inp = op.getInput(0)
                 outp = op.getOutput()
                 if inp in param_varnodes and outp not in param_varnodes:
