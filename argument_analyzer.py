@@ -19,7 +19,7 @@ from ghidra.program.model.listing import ReturnParameterImpl
 from ghidra.program.model.listing import ParameterImpl
 # eventually would like to use this
 # from ghidra.app.cmd.function import ApplyFunctionSignatureCmd
-from collections import namedtuple
+from collections import namedtuple, defaultdict
 import string
 import logging
 
@@ -370,6 +370,18 @@ class FunctionArgumentAnalyzer:
         pcode_ops = self.get_pcode_for_function(func)
 
         # TODO: this might be best as its own function
+        # NOTE: a call to insertPtrsubZero in ActionSetCasts::castInput
+        # NOTE: in Ghidra/Features/Decompiler/src/decompile/cpp/coreaction.cc
+        # NOTE: can add an extra PTRSUB(vn, 0) op to the pcode when a struct
+        # NOTE: ptr is passed to a function and the first field of the struct
+        # NOTE: has the same "metatype" as the function's parameter,
+        # NOTE: so long as the type of the struct doesn't match the type of
+        # NOTE: the parameter,
+        # NOTE: because in optimized code the two different actions look
+        # NOTE: the same, and it clarifies something that the correct
+        # NOTE: pcode op (a `CAST`) would not effectively communicate.
+        # NOTE: Unfortunately, this also slightly breaks analysis here.
+
         # collect all of the varnodes that are the param or a direct
         # cast/copy of it
         added_varnode = True
@@ -434,7 +446,7 @@ class FunctionArgumentAnalyzer:
                         call_op.seqnum.target,
                         func_addr)
             return
-        log.info("Propagating arguments for %s", func.getName())
+        log.info("Checking argument count for %s", func.getName())
 
         # remove one input for called address
         op_arg_count = call_op.getNumInputs() - 1
@@ -449,7 +461,8 @@ class FunctionArgumentAnalyzer:
 
         if expected_param_count >= proto_param_count:
             return
-        log.info("expected param %d proto param %d",
+        log.info("%s expected param %d proto param %d",
+                 func.getName(),
                  expected_param_count,
                  proto_param_count)
 
@@ -474,6 +487,34 @@ class FunctionArgumentAnalyzer:
                             return_param, params,
                 FunctionUpdateType.DYNAMIC_STORAGE_FORMAL_PARAMS,
                             False, SourceType.USER_DEFINED)
+
+    def _get_call_ops_for_descendant_funcs(self, func):
+        desc_funcs = self.get_descendant_called_funcs(func)
+        all_call_ops = []
+        for func in desc_funcs:
+            try:
+                pcode_ops = self.get_pcode_for_function(func)
+            except:
+                log.warning("Unable to get pcode for %s" % func.name)
+                continue
+            for op in pcode_ops:
+                if op.opcode == PcodeOpAST.CALL:
+                    all_call_ops.append(op)
+        return all_call_ops
+
+    def realize_func_sig_for_descendant_funcs(self, func):
+        call_ops = self._get_call_ops_for_descendant_funcs(func)
+
+        grouped_ops = defaultdict(list)
+        for op in call_ops:
+            addr = op.getInput(0).getAddress()
+            grouped_ops[addr].append(op)
+
+        for ops_list in grouped_ops.values():
+            # only try to fix the arguments once for each function,
+            # just in case one function is called many many times
+            op = ops_list[0]
+            self.realize_func_sig_from_op(op)
 
 
 def walk_pcode_until_handlable_op(varnode, maxcount=20):
