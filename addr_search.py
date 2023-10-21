@@ -1,5 +1,6 @@
 # Search the address space of the current program for a pointer
 #@author Clifton Wolfe
+#@keybinding ctrl 0
 #@category Utils
 
 from ghidra.util.task import ConsoleTaskMonitor
@@ -7,13 +8,26 @@ from ghidra.program.flatapi import FlatProgramAPI
 from ghidra.python import PythonScript
 from ghidra.program.model.symbol import SourceType
 from pointer_utils import PointerUtils
+import logging
 
 from __main__ import *
 
+log = logging.getLogger(__file__)
+log.addHandler(logging.StreamHandler())
+log.setLevel(logging.INFO)
+
+
+selection = state.currentSelection
+if selection is None:
+    log.debug("No selection detected, asking for address")
+    addr = askAddress("Address to search for",
+                      "Enter address to search for")
+else:
+    addr = selection.minAddress
+
+log.info("[+] Searching for %s", addr)
 
 ptr_util = PointerUtils()
-
-addr = askAddress("Address to search for", "Enter address to search for")
 
 match_addrs = ptr_util.search_for_pointer(addr)
 for addr in match_addrs:

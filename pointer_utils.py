@@ -128,7 +128,7 @@ class PointerUtils:
         Find all locations where a specific pointer is embedded in memory
         """
         if isinstance(pointer, GenericAddress):
-            pointer = pointer.getOffset()
+            pointer = pointer.getOffsetAsBigInteger()
 
         pointer_bytes = struct.pack(self.ptr_pack_code, pointer)
         pointer_pattern = re.escape(pointer_bytes)
