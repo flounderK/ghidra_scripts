@@ -88,17 +88,17 @@ class PointerUtils:
         address_pattern = b''
         single_address_pattern = b''
         if self.mem.isBigEndian() is False:
-            packed_addr = struct.pack(self.pack_sym, minimum_addr)
+            packed_addr = struct.pack(self.ptr_pack_sym, minimum_addr)
             single_address_pattern = b''.join([wildcard_pattern*wildcard_bytes,
                                                boundary_byte_pattern,
                                                packed_addr[byte_count:]])
         else:
-            packed_addr = struct.pack(self.pack_sym, minimum_addr)
+            packed_addr = struct.pack(self.ptr_pack_sym, minimum_addr)
             single_address_pattern = b''.join([packed_addr[:byte_count],
                                                boundary_byte_pattern,
                                                wildcard_pattern*wildcard_bytes])
 
-        # empty_addr = struct.pack(self.pack_sym, 0)
+        # empty_addr = struct.pack(self.ptr_pack_sym, 0)
 
         address_pattern = b"(%s)" % single_address_pattern
         return address_pattern
