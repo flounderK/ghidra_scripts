@@ -16,11 +16,13 @@ from __main__ import *
 
 
 class PointerUtils:
-    def __init__(self):
-        self.addr_fact = currentProgram.getAddressFactory()
+    def __init__(self, program=None):
+        if program is None:
+            program = currentProgram
+        self.addr_fact = program.getAddressFactory()
         self.addr_space = self.addr_fact.getDefaultAddressSpace()
         self.ptr_size = self.addr_space.getPointerSize()
-        self.mem = currentProgram.getMemory()
+        self.mem = program.getMemory()
         self.ptr_pack_sym = ""
         if self.ptr_size == 4:
             self.ptr_pack_sym = "I"
