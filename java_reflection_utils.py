@@ -64,7 +64,6 @@ def get_java_method_by_param_constraints(javaclass, method_name, constraints=Non
         # return the first method that satisfies all constraints
         return method
     return None
-`
 
 def get_accessible_java_method_by_param_constraints(javaclass, method_name, constraints=None):
     method = get_java_method_by_param_constraints(javaclass,
