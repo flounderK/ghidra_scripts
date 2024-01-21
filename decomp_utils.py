@@ -5,7 +5,11 @@ from ghidra.app.decompiler import DecompInterface
 from ghidra.util.task import ConsoleTaskMonitor
 from ghidra.program.model.pcode import PcodeOpAST
 from ghidra.app.decompiler.component import DecompilerUtils
+import logging
 
+log = logging.getLogger(__file__)
+log.addHandler(logging.StreamHandler())
+log.setLevel(logging.WARNING)
 
 
 class DecompUtils:
@@ -52,4 +56,90 @@ class DecompUtils:
         self._ifc.openProgram(func.getProgram())
         res = self._ifc.decompileFunction(func, timeout, self._monitor)
         return res
+
+    def get_function_prototype(self, func, **kwargs):
+        """
+        Get the function prototype for function @func
+        """
+        hf = self.get_high_function(func, **kwargs)
+        if hf is None:
+            return None
+        return hf.getFunctionPrototype()
+
+    def _get_high_sym_for_param_by_index(self, func, index, **kwargs):
+        """
+        Get the HighSymbol for a function's parameter. Parameter is specified
+        by @index, and indexes start at zero. @index will NOT match up
+        with the parameter numbers from the decompiler window
+        """
+        proto = self.get_function_prototype(func, **kwargs)
+        if proto is None:
+            log.warning("No prototype for %s" % func.name)
+            return None
+        num_params = proto.getNumParams()
+        if num_params-1 < index:
+            log.warning("Parameter index %d does not exist in %s which has %d parameters" % (index, func.name, num_params))
+            return None
+        high_sym = proto.getParam(index)
+        return high_sym
+
+    def get_high_sym_for_param(self, func, param_num, **kwargs):
+        """
+        Get the HighSymbol for a function. @param_num matches up with parameter
+        numbers visible in the decompiler window
+        """
+        return self._get_high_sym_for_param_by_index(func, param_num-1, **kwargs)
+
+
+    def get_varnodes_for_param(self, func, param_num, **kwargs):
+        """
+        Gets the varnodes for a function parameter. @param_num matches up with
+        the parameter number from the decompiler window
+        """
+        high_sym = self.get_high_sym_for_param(func, param_num, **kwargs)
+        if high_sym is None:
+            log.warning("No HighSymbol for %s param %d " % (func.name, param_num))
+            return None
+        # it is actually legitimate for there to be no high variable or
+        # varnodes for a high symbol, like in cases where the parameter is just
+        # unused
+        high_var = high_sym.getHighVariable()
+        if high_var is None:
+            # log.warning("No HighVariable for %s param %d " % (func.name, param_num))
+            return []
+        vn_arr = high_var.getInstances()
+        if vn_arr is None:
+            # log.warning("No Varnode instances for %s param %d " % (func.name, param_num))
+            return []
+        return list(vn_arr)
+
+    def get_all_parameter_varnodes(self, func, **kwargs):
+        """
+        Get a list of lists of varnodes for all paramters to @func
+        """
+        proto = self.get_function_prototype(func, **kwargs)
+        if proto is None:
+            log.warning("No prototype for %s" % func.name)
+            return None
+        num_params = proto.getNumParams()
+        if num_params == 0:
+            return []
+        varnodes_lists = []
+        for param_num in range(1, num_params+1):
+            vns = self.get_varnodes_for_param(func, param_num, **kwargs)
+            if vns is None:
+                log.error("unable to get varnodes for param %d" % param_num)
+                continue
+            varnodes_lists.append(vns)
+        return varnodes_lists
+
+    def get_pcode_for_function(self, func, **kwargs):
+        """
+        Get an unsorted list of PcodeOps for the function @func
+        """
+        hf = self.get_high_function(func, **kwargs)
+        if hf is None:
+            log.warning("couldn't get high function for %s" % func.name)
+            return None
+        return list(hf.getPcodeOps())
 
