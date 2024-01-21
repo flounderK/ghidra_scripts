@@ -1,18 +1,32 @@
 
 from __main__ import *
+import java
 
 """
 Utilities for utilizing java's reflection capabilities from python
 """
 
 
-def get_accessible_java_field(javaclass, field_name):
+def get_java_field(javaclass, field_name, check_super=True):
+    curr_javaclass = javaclass
+    while curr_javaclass is not None:
+        for field in curr_javaclass.getDeclaredFields():
+            if field.name != field_name:
+                continue
+            return field
+        if check_super is True:
+            curr_javaclass = curr_javaclass.getSuperclass()
+        else:
+            break
+    return None
+
+
+def get_accessible_java_field(javaclass, field_name, check_super=True):
     """
     """
-    field = javaclass.getDeclaredField(field_name)
-    if field is None:
-        return None
-    field.setAccessible(True)
+    field = get_java_field(javaclass, field_name, check_super=check_super)
+    if field is not None:
+        field.setAccessible(True)
     return field
 
 
@@ -39,7 +53,7 @@ def satisfies_parameter_constraints(method_or_constr, constraints):
     return True
 
 
-def get_java_method_by_param_constraints(javaclass, method_name, constraints=None):
+def get_java_method_by_param_constraints(javaclass, method_name, constraints=None, check_super=True):
     if constraints is None:
         constraints = {}
 
@@ -47,28 +61,35 @@ def get_java_method_by_param_constraints(javaclass, method_name, constraints=Non
     return_constraint = constraints.get(-1)
     if return_constraint is not None:
         constraints.pop(-1)
-    for method in javaclass.getDeclaredMethods():
-        if method.name != method_name:
-            continue
-        if satisfies_parameter_constraints(method, constraints) is False:
-            continue
-        # check return constraints
-        if return_constraint is not None:
-            return_type = method.getReturnType()
-            # TODO: confirm that there isn't a type in java like
-            # TODO: AlwaysNull that could be returned
-            if return_type is None:
+    curr_javaclass = javaclass
+    while curr_javaclass is not None:
+        for method in curr_javaclass.getDeclaredMethods():
+            if method.name != method_name:
                 continue
-            if return_type != return_constraint:
+            if satisfies_parameter_constraints(method, constraints) is False:
                 continue
-        # return the first method that satisfies all constraints
-        return method
+            # check return constraints
+            if return_constraint is not None:
+                return_type = method.getReturnType()
+                # TODO: confirm that there isn't a type in java like
+                # TODO: AlwaysNull that could be returned
+                if return_type is None:
+                    continue
+                if return_type != return_constraint:
+                    continue
+            # return the first method that satisfies all constraints
+            return method
+        if check_super is True:
+            curr_javaclass = curr_javaclass.getSuperclass()
+        else:
+            break
     return None
 
-def get_accessible_java_method_by_param_constraints(javaclass, method_name, constraints=None):
+def get_accessible_java_method_by_param_constraints(javaclass, method_name, constraints=None, check_super=True):
     method = get_java_method_by_param_constraints(javaclass,
                                                   method_name,
-                                                  constraints)
+                                                  constraints,
+                                                  check_super=check_super)
     if method is None:
         return None
     method.setAccessible(True)
@@ -87,6 +108,7 @@ def get_java_constructor_by_param_constraints(javaclass, constraints=None):
         return constructor
     return None
 
+
 def get_accessible_java_constructor_by_param_constraints(javaclass, constraints=None):
     constructor = get_java_constructor_by_param_constraints(javaclass,
                                                             constraints)
@@ -94,3 +116,22 @@ def get_accessible_java_constructor_by_param_constraints(javaclass, constraints=
         return None
     constructor.setAccessible(True)
     return constructor
+
+
+def get_all_declared_fields(javaclass, ignore_object_fields=True):
+    curr_javaclass = javaclass
+    all_fields = []
+    while curr_javaclass is not None or (curr_javaclass is not None and ignore_object_fields and curr_javaclass != java.lang.Object):
+        all_fields += list(curr_javaclass.getDeclaredFields())
+        curr_javaclass = curr_javaclass.getSuperclass()
+    return all_fields
+
+
+def get_all_declared_methods(javaclass, ignore_object_fields=True):
+    curr_javaclass = javaclass
+    all_methods = []
+    while curr_javaclass is not None or (curr_javaclass is not None and ignore_object_fields and curr_javaclass != java.lang.Object):
+        all_methods += list(curr_javaclass.getDeclaredMethods())
+        curr_javaclass = curr_javaclass.getSuperclass()
+    return all_methods
+
