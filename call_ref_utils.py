@@ -39,7 +39,7 @@ def get_callsites_for_func_by_name(func_name, program=None):
     callsites = defaultdict(list)
     for func in funcs:
         entry = func.getEntryPoint()
-        calling_addresses = get_callsites_for_address(entry, program)
+        calling_addresses = get_calling_addresses_to_address(entry, program)
         for calling_addr in calling_addresses:
             calling_func = getFunctionContaining(calling_addr)
             # ignore thunks, they should already be in the list
