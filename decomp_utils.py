@@ -143,3 +143,47 @@ class DecompUtils:
             return None
         return list(hf.getPcodeOps())
 
+    def varnode_is_direct_source_of(self, source_vn_cand, descendant_vn_cand):
+        """
+        Check to see if the Varnode @source_vn_cand directly leads to
+        @descendant_vn_cand
+        """
+        if source_vn_cand == descendant_vn_cand:
+            return True
+        defining_op = descendant_vn_cand.getDef()
+        # an op with no definition is likely a parameter, global,
+        # uninitialized, or part of a composite struct on the stack or in ram
+        # that hasn't been recovered
+        if defining_op is None:
+            return False
+        fwd_slice_vns = list(DecompilerUtils.getForwardSlice(source_vn_cand))
+        # TODO: check to see if anything else weird could happen to make this
+        # TODO: not handle all cases
+        if descendant_vn_cand in source_vn_cand:
+            return True
+        return False
+
+    def varnode_leads_to_definition_of(self, source_vn_cand, descendant_vn_cand):
+        """
+        Check to see if the Varnode @source_vn_cand directly leads to
+        inputs to the defining op of @descendant_vn_cand
+        """
+        if source_vn_cand == descendant_vn_cand:
+            return True
+        defining_op = descendant_vn_cand.getDef()
+        # an op with no definition is likely a parameter, global,
+        # uninitialized, or part of a composite struct on the stack or in ram
+        # that hasn't been recovered
+        if defining_op is None:
+            return False
+        defining_op_inputs = list(defining_op.getInputs())
+        defining_op_inputs_set = set(defining_op_inputs)
+
+        fwd_slice_vns = list(DecompilerUtils.getForwardSlice(source_vn_cand))
+        fwd_slice_vns_set = set(fwd_slice_vns)
+        intersecting_vns = fwd_slice_vns_set.intersection(defining_op_inputs_set)
+        if len(intersecting_vns) > 0:
+            return True
+        return False
+
+
