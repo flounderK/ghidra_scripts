@@ -159,7 +159,7 @@ class DecompUtils:
         fwd_slice_vns = list(DecompilerUtils.getForwardSlice(source_vn_cand))
         # TODO: check to see if anything else weird could happen to make this
         # TODO: not handle all cases
-        if descendant_vn_cand in source_vn_cand:
+        if descendant_vn_cand in fwd_slice_vns:
             return True
         return False
 
@@ -176,14 +176,21 @@ class DecompUtils:
         # that hasn't been recovered
         if defining_op is None:
             return False
-        defining_op_inputs = list(defining_op.getInputs())
-        defining_op_inputs_set = set(defining_op_inputs)
-
-        fwd_slice_vns = list(DecompilerUtils.getForwardSlice(source_vn_cand))
-        fwd_slice_vns_set = set(fwd_slice_vns)
-        intersecting_vns = fwd_slice_vns_set.intersection(defining_op_inputs_set)
+        intersecting_vns = self.get_op_inputs_from_fwd_from_varnode(source_vn_cand, 
+                                                                    defining_op)
         if len(intersecting_vns) > 0:
             return True
         return False
+    
+    def get_op_inputs_from_fwd_from_varnode(self, varnode, op):
+        if op is None:
+            return set()
+        op_inputs = list(op.getInputs())
+        op_inputs_set = set(op_inputs)
+        fwd_slice_vns = list(DecompilerUtils.getForwardSlice(varnode))
+        fwd_slice_vns_set = set(fwd_slice_vns)
+        intersecting_vns = fwd_slice_vns_set.intersection(op_inputs_set)
+        return intersecting_vns
+
 
 

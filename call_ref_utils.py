@@ -12,16 +12,14 @@ def get_calling_addresses_to_address(address, program=None):
     if program is None:
         program = currentProgram
     refman = program.getReferenceManager()
-
-    calling_functions = list()
+    calling_addrs = list()
     references = refman.getReferencesTo(address)
     for ref in references:
         ref_type = ref.getReferenceType()
         if ref_type.isCall() is False:
             continue
-        # calling_func = getFunctionContaining(ref.fromAddress)
-        calling_functions.append(ref.fromAddress)
-    return calling_functions
+        calling_addrs.append(ref.fromAddress)
+    return calling_addrs
 
 
 def get_callsites_for_func_by_name(func_name, program=None):
@@ -56,7 +54,6 @@ def function_calls_self(func, program=None):
     """
     if program is None:
         program = currentProgram
-
     entry = func.getEntryPoint()
     calling_addrs = get_calling_addresses_to_address(entry, program)
     return any([func.body.contains(a) for a in calling_addrs])
@@ -114,6 +111,7 @@ def get_all_functions_called_from(func, program=None, monitor_inst=None):
     visited = set()
     while to_visit:
         curr_func = to_visit.pop()
+        # TODO: do this without a monitor
         called_funcs = curr_func.getCalledFunctions(monitor_inst)
         for called_func in called_funcs:
             if called_func in visited:

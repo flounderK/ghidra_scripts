@@ -90,9 +90,8 @@ def get_accessible_java_method_by_param_constraints(javaclass, method_name, cons
                                                   method_name,
                                                   constraints,
                                                   check_super=check_super)
-    if method is None:
-        return None
-    method.setAccessible(True)
+    if method is not None:
+        method.setAccessible(True)
     return method
 
 
@@ -112,9 +111,8 @@ def get_java_constructor_by_param_constraints(javaclass, constraints=None):
 def get_accessible_java_constructor_by_param_constraints(javaclass, constraints=None):
     constructor = get_java_constructor_by_param_constraints(javaclass,
                                                             constraints)
-    if constructor is None:
-        return None
-    constructor.setAccessible(True)
+    if constructor is not None:
+        constructor.setAccessible(True)
     return constructor
 
 
