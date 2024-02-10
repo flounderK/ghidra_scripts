@@ -176,13 +176,13 @@ class DecompUtils:
         # that hasn't been recovered
         if defining_op is None:
             return False
-        intersecting_vns = self.get_op_inputs_from_fwd_from_varnode(source_vn_cand, 
+        intersecting_vns = self.get_op_inputs_from_fwd_from_varnode(source_vn_cand,
                                                                     defining_op)
         if len(intersecting_vns) > 0:
             return True
         return False
-    
-    def get_op_inputs_from_fwd_from_varnode(self, varnode, op):
+
+    def get_op_inputs_fwd_from_varnode(self, varnode, op):
         if op is None:
             return set()
         op_inputs = list(op.getInputs())
@@ -192,5 +192,20 @@ class DecompUtils:
         intersecting_vns = fwd_slice_vns_set.intersection(op_inputs_set)
         return intersecting_vns
 
+
+def find_all_ptradds(program=None, **kwargs):
+    if program is None:
+        program = currentProgram
+    du = DecompUtils(program, **kwargs)
+    funcs_with_ptradd = {}
+    for func in program.getFunctionManager().getFunctions(1):
+        if func.isThunk():
+            continue
+        pcode_ops = du.get_pcode_for_function(func)
+        ptradd_ops = [i for i in pcode_ops if i.opcode == PcodeOpAST.PTRADD]
+        if not ptradd_ops:
+            continue
+        funcs_with_ptradd[func] = [op.getSeqnum().getTarget() for op in ptradd_ops]
+    return funcs_with_ptradd
 
 
