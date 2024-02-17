@@ -1,6 +1,7 @@
 
 from __main__ import *
 from ghidra.program.database.data import DataTypeUtilities
+from ghidra.program.model.data import PointerDataType
 
 
 def find_datatypes_using(datatype, check_full_chains=True):
@@ -26,4 +27,19 @@ def find_datatypes_using(datatype, check_full_chains=True):
     return visited
 
 
+def getUndefinedRegisterSizeDatatype(program=None):
+    """
+    Returns an "undefined*" datatype that is the appropriate 
+    size to hold a pointer. Useful if you don't know the real datatype 
+    and expect it to have to be changed later
+    """
+    if program is None:
+        program = currentProgram
+    dtm = program.getDataTypeManager()
+    # this might not work for older versions of ghidra
+    default_ptr_size = program.getDefaultPointerSize()
+    return dtm.getDataType("/undefined%d" % default_ptr_size)
 
+
+def getGenericPointerDatatype():
+    return PointerDataType()
