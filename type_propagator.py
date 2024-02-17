@@ -16,21 +16,12 @@ from __main__ import *
 
 
 class FunctionCallArgContext(object):
-    def __init__(self, from_address=None, to_address=None):
+    def __init__(self, to_address=None):
         self.args = {}
-        self.from_address = from_address
         self.to_address = to_address
         self.called_from_func = None
         self.called_to_func = None
-        self._from_repr = "FROM"
         self._to_repr = "TO"
-        self.from_addresses = set()
-        if from_address is not None:
-            self.from_addresses.add(from_address)
-            self._from_repr = str(from_address)
-            self.called_from_func = getFunctionContaining(from_address)
-            if self.called_from_func is not None:
-                self._from_repr = self.called_from_func.name
         if to_address is not None:
             self._to_repr = str(to_address)
             self.called_to_func = getFunctionContaining(to_address)
@@ -61,13 +52,12 @@ class FunctionArgHolder(object):
         key = arg_ctx.to_address
         self.function_call_args[key] = arg_ctx
 
-    def get(self, address, called_addr):
+    def get(self, called_addr):
         key = called_addr
         maybe_v = self.function_call_args.get(key)
         if maybe_v is None:
-            maybe_v = FunctionCallArgContext(address, called_addr)
+            maybe_v = FunctionCallArgContext(called_addr)
             self.function_call_args[key] = maybe_v
-        # maybe_v.from_addresses.add(address)
         return maybe_v
 
 
@@ -103,8 +93,7 @@ def trace_struct_fwd_to_call(varnodes, func_arg_holder=None):
                 for ref in refman.getReferencesFrom(call_addr):
                     if ref.referenceType.isCall() is False:
                         continue
-                    func_call_args = func_arg_holder.get(call_addr,
-                                                         ref.toAddress)
+                    func_call_args = func_arg_holder.get(ref.toAddress)
                     for i in range(1, len(inputs)):
                         if inputs[i] != vn:
                             continue
@@ -169,7 +158,7 @@ def trace_struct_forward(varnodes):
         varnodes = [varnodes]
     du = DecompUtils()
     func_arg_holder = FunctionArgHolder()
-    trace_struct_fwd_to_call(vns, func_arg_holder)
+    trace_struct_fwd_to_call(varnodes, func_arg_holder)
     to_visit = set([i for i in func_arg_holder.function_call_args.values()])
     visited = set()
     visited_to_addrs = set()
