@@ -84,8 +84,8 @@ class PointerUtils:
         boundary_byte_upper = (maximum_addr >> (wildcard_bytes*8)) & 0xff
         boundary_byte_lower = (minimum_addr >> (wildcard_bytes*8)) & 0xff
         # create a character class that will match the largest changing byte
-        boundary_byte_pattern = b"[\\%s-\\%s]" % (bytearray([boundary_byte_lower]),
-                                                  bytearray([boundary_byte_upper]))
+        boundary_byte_pattern = b"[%s-%s]" % (re.escape(bytearray([boundary_byte_lower])),
+                                              re.escape(bytearray([boundary_byte_upper])))
 
         address_pattern = b''
         single_address_pattern = b''
