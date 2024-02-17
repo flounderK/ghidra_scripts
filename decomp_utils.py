@@ -193,19 +193,23 @@ class DecompUtils:
         return intersecting_vns
 
 
-def find_all_ptradds(program=None, **kwargs):
+def find_all_pcode_op_instances(opcodes, program=None, **kwargs):
+    if not hasattr(opcodes, "__iter__"):
+        opcodes = [opcodes]
+    if any([i > PcodeOpAST.PCODE_MAX for i in opcodes]):
+        raise Exception("Invalud Pcode op")
     if program is None:
         program = currentProgram
     du = DecompUtils(program, **kwargs)
-    funcs_with_ptradd = {}
+    funcs_with_matching_op = {}
     for func in program.getFunctionManager().getFunctions(1):
         if func.isThunk():
             continue
         pcode_ops = du.get_pcode_for_function(func)
-        ptradd_ops = [i for i in pcode_ops if i.opcode == PcodeOpAST.PTRADD]
-        if not ptradd_ops:
+        matching_ops = [i for i in pcode_ops if i.opcode in opcodes]
+        if not matching_ops:
             continue
-        funcs_with_ptradd[func] = [op.getSeqnum().getTarget() for op in ptradd_ops]
-    return funcs_with_ptradd
+        funcs_with_matching_op[func] = [op.getSeqnum().getTarget() for op in matching_ops]
+    return funcs_with_matching_op
 
 
