@@ -5,7 +5,7 @@ from ghidra.program.database.data import DataTypeUtilities
 
 def find_datatypes_using(datatype, check_full_chains=True):
     initial_dt = datatype
-    visted = set()
+    visited = set()
     to_visit = set([datatype])
     while to_visit:
         curr_dt = to_visit.pop()
