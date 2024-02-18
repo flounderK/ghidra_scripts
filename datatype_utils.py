@@ -2,6 +2,7 @@
 from __main__ import *
 from ghidra.program.database.data import DataTypeUtilities
 from ghidra.program.model.data import PointerDataType
+from ghidra.program.model.data import MetaDataType
 
 
 def find_datatypes_using(datatype, check_full_chains=True):
@@ -36,10 +37,25 @@ def getUndefinedRegisterSizeDatatype(program=None):
     if program is None:
         program = currentProgram
     dtm = program.getDataTypeManager()
-    # this might not work for older versions of ghidra
     default_ptr_size = program.getDefaultPointerSize()
     return dtm.getDataType("/undefined%d" % default_ptr_size)
 
 
 def getGenericPointerDatatype():
     return PointerDataType()
+
+
+def getVoidPointerDatatype(program=None):
+    if program is None:
+        program = currentProgram
+    dtm = program.getDataTypeManager()
+    void_dt = dtm.getDataType("/void")
+    return dtm.getPointer(void_dt)
+
+
+def areBaseDataTypesEquallyUnique(datatype_a, datatype_b):
+    datatype_a = DataTypeUtilities.getBaseDataType(datatype_a)
+    datatype_b = DataTypeUtilities.getBaseDataType(datatype_b)
+    a_meta = MetaDataType.getMeta(datatype_a)
+    b_meta = MetaDataType.getMeta(datatype_b)
+    return a_meta.compareTo(b_meta) == 0

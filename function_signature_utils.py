@@ -18,9 +18,22 @@ from ghidra.program.model.listing import Program
 from ghidra.program.model.symbol import SourceType
 from ghidra.program.database.data import DataTypeUtilities
 from ghidra.program.model.data import DefaultDataType
+from ghidra.program.model.data import MetaDataType
 
 from datatype_utils import getUndefinedRegisterSizeDatatype
 
+
+def getDataTypeForParam(func, param_num):
+    sig = func.getSignature()
+    param_ind = param_num - 1
+    if param_ind < 0:
+        raise Exception("param_num is too low to be valid")
+    args = list(sig.getArguments())
+    if len(args) <= param_ind:
+        return None
+    param = args[param_ind]
+    existing_datatype = param.getDataType()
+    return existing_datatype
 
 
 def set_num_params(func, num_params, widen_undef_params=True, widen_undef_return=False, default_datatype=None, var_args=False, program=None):
@@ -68,7 +81,7 @@ def set_num_params(func, num_params, widen_undef_params=True, widen_undef_return
 def set_param_datatype(func, param_num, datatype, program=None):
     """
     Sets the Datatype for a parameter
-    param_num is indexed from 1 and matches the param_* that can be seen in the decompiler
+    param_num is indexed from 1 and matches the param_* that can be seen in the decompiler.
     """
     param_ind = param_num-1
     if param_ind < 0:

@@ -4,9 +4,13 @@ from ghidra.python import PythonScript
 from ghidra.program.util import FunctionSignatureFieldLocation
 from ghidra.program.model.symbol import FlowType, RefType, SourceType
 from ghidra.app.cmd.function import ApplyFunctionSignatureCmd
+from ghidra.program.model.data import MetaDataType
+from ghidra.program.model.data import DefaultDataType
 
 import logging
 from decomp_utils import DecompUtils
+from function_signature_utils import set_param_datatype, set_num_params, getDataTypeForParam
+from datatype_utils import getVoidPointerDatatype, areBaseDataTypesEquallyUnique
 
 log = logging.getLogger(__file__)
 log.addHandler(logging.StreamHandler())
@@ -16,10 +20,12 @@ from __main__ import *
 
 
 class FunctionCallArgContext(object):
+    """
+    A class representing the arguments for a call to a specific address
+    """
     def __init__(self, to_address=None):
         self.args = {}
         self.to_address = to_address
-        self.called_from_func = None
         self.called_to_func = None
         self._to_repr = "TO"
         if to_address is not None:
@@ -35,24 +41,42 @@ class FunctionCallArgContext(object):
         arg_num is not equivalent to slot
         """
         self.args[arg_num] = arg
+    
+    def merge(self, other):
+        for k, v in other.args.items():
+            existing = self.args.get(k)
+            if existing is None:
+                self.args[k] = v        
 
     def __repr__(self):
         return "%s(%s)" % (self._to_repr,
                            ", ".join(["%d" % i for i in self.args.keys()]))
 
 
-class FunctionArgHolder(object):
+class FunctionArgContextCollection(object):
+    """
+    A class representing a related collection of FunctionCallArgContext. These
+    FunctionCallArgContexts do not have to be from the same function.
+    """
     def __init__(self):
         self.function_call_args = {}
 
-    def add(self, arg_ctx):
+    def add(self, arg_ctx, merge=True):
         """
         FunctionCallArgContext
         """
         key = arg_ctx.to_address
+        if merge is True:
+            existing = self.function_call_args.get(key)
+            if existing is not None:
+                existing.merge(arg_ctx)
+                arg_ctx = existing
         self.function_call_args[key] = arg_ctx
 
     def get(self, called_addr):
+        """
+        Get a FunctionCallArgContext for the specified address
+        """
         key = called_addr
         maybe_v = self.function_call_args.get(key)
         if maybe_v is None:
@@ -61,7 +85,11 @@ class FunctionArgHolder(object):
         return maybe_v
 
 
-def trace_struct_fwd_to_call(varnodes, func_arg_holder=None):
+def trace_struct_fwd_to_call(varnodes, func_arg_holder=None, allow_ptrsub_zero=False):
+    """
+    Within a single function, trace the specified varnodes forward to any call operations.
+    Does not follow through dereferences
+    """
     def _add_to_list(curr_vn, vn_cand, to_visit, visited):
         if vn_cand is None:
             return
@@ -74,7 +102,7 @@ def trace_struct_fwd_to_call(varnodes, func_arg_holder=None):
         to_visit.append(vn_cand)
 
     if func_arg_holder is None:
-        func_arg_holder = FunctionArgHolder()
+        func_arg_holder = FunctionArgContextCollection()
 
     refman = currentProgram.getReferenceManager()
     if not hasattr(varnodes, '__iter__'):
@@ -109,7 +137,7 @@ def trace_struct_fwd_to_call(varnodes, func_arg_holder=None):
                 # is set to the incorrect type or size
                 vn_cand = op.getOutput()
                 _add_to_list(vn, vn_cand, to_visit, visited)
-            elif opcode == PcodeOpAST.PTRSUB:
+            elif opcode == PcodeOpAST.PTRSUB and allow_ptrsub_zero is True:
                 # an optimization to make the decompiler output look
                 # closer to C code can add in a dummy ptrsub vn, 0
                 # to allow passing field0_0x0 into function calls
@@ -147,18 +175,20 @@ def trace_struct_fwd_to_call(varnodes, func_arg_holder=None):
     return func_arg_holder
 
 
-def trace_struct_forward(varnodes):
+def trace_struct_forward(varnodes, allow_ptrsub_zero=False):
     """
     Trace forward from a varnode or varnodes to all locations in this
     function and in functions called by this function and identify if the
     specified varnodes are passed directly into other functions
-    returns a FunctionArgHolder
+    returns a FunctionArgContextCollection. This effectively traces places where 
+    a struct pointer is passed as an argument
     """
     if not hasattr(varnodes, '__iter__'):
         varnodes = [varnodes]
     du = DecompUtils()
-    func_arg_holder = FunctionArgHolder()
-    trace_struct_fwd_to_call(varnodes, func_arg_holder)
+    func_arg_holder = FunctionArgContextCollection()
+    # get the top level of FunctionCallArgContext
+    trace_struct_fwd_to_call(varnodes, func_arg_holder, allow_ptrsub_zero=allow_ptrsub_zero)
     to_visit = set([i for i in func_arg_holder.function_call_args.values()])
     visited = set()
     visited_to_addrs = set()
@@ -183,7 +213,7 @@ def trace_struct_forward(varnodes):
             log.error("couldn't get varnodes for %s" % (curr_func.name))
             visited_to_addrs.add(curr_arg_ctx.to_address)
             continue
-        tmp_arg_holder = trace_struct_fwd_to_call(in_vns)
+        tmp_arg_holder = trace_struct_fwd_to_call(in_vns, allow_ptrsub_zero=allow_ptrsub_zero)
         for cand_arg_ctx in tmp_arg_holder.function_call_args.values():
             if cand_arg_ctx in visited:
                 continue
@@ -202,8 +232,50 @@ def trace_struct_forward(varnodes):
     return func_arg_holder
 
 
-# du = DecompUtils()
-# func = getFunction("CMD_EXEC")
-# vns = du.get_varnodes_for_param(func, 1)
-# a = trace_struct_forward(vns)
+def propagate_datatype_forward_to_function_signatures(varnodes, datatype, program=None, skip_external=True, overwrite_voidp=False, prefer_existing=True, force_new=False):
+    """
+    Propagate a datatype forward to all function signatures the specified varnodes are passed to
+    """
+    if program is None:
+        program = currentProgram
+    func_arg_ctx_collection = trace_struct_forward(varnodes)
+    voidp_dt = getVoidPointerDatatype(program)
 
+    for addr, arg_ctx in func_arg_ctx_collection.function_call_args.items():
+        if arg_ctx.to_address is None:
+            log.info("skipping a reference to an unknown function call because there is no `to` address")
+            continue
+        if arg_ctx.called_to_func is None:
+            log.warning("skipping a reference to %s because there is no function defined there" % str(arg_ctx.to_address))
+            continue
+        # resolve thunk if necessary
+        func = arg_ctx.called_to_func
+        if func.isThunk():
+            func = func.getThunkedFunction(1)
+        # changing types on externals can cause some issues, so avoid it by default
+        if func.isExternal() and skip_external is True:
+            continue
+        for param_num, param_v in arg_ctx.args.items():
+            existing_datatype = getDataTypeForParam(func, param_num)
+            if existing_datatype is None:
+                log.warning("existing datatype was None for %s param %d. Running Decompiler Parameter ID analysis may resolve this." % (func.name, param_num))
+                existing_datatype = DefaultDataType()
+            if existing_datatype == voidp_dt and overwrite_voidp is False:
+                # don't overwrite void* because of functions like memcpy that actually use that type
+                continue
+            if existing_datatype == datatype:
+                # if the parameter's datatype is already this datatype, we aren't making a change and shouldn't 
+                # do anything
+                continue
+            if force_new is False:
+                # getMostSpecificDataType prefers the first argument if the datatypes are equally specific
+                if prefer_existing is True:
+                    preferred_dt, less_preferred_dt = existing_datatype, datatype
+                else:
+                    preferred_dt, less_preferred_dt = datatype, existing_datatype
+                chosen_datatype = MetaDataType.getMostSpecificDataType(preferred_dt, less_preferred_dt)
+                if chosen_datatype != datatype:
+                    log.warning("skipping %s because the more specific datatype is not the provided one. to ignore this, run the function with force_new=True" % func.name)
+                    continue
+            set_param_datatype(func, param_num, datatype, program)
+            func.addTag("AUTO_PROPAGATED_PARAM_%d_DATATYPE" % param_num)
