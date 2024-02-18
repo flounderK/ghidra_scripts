@@ -1,4 +1,5 @@
-# Utility Class for interacting with pointers
+# Utility Class for interacting with pointers. To get an instance of the class, 
+# use createPointerUtils
 #@author Clifton Wolfe
 #@category Utils
 
@@ -15,14 +16,86 @@ import struct
 from __main__ import *
 
 
+def get_memory_bounds(excluded_memory_block_names=["tdb"]):
+    """
+    Try to identify the bounds of memory that is currently mapped in.
+    Some standard memory blocks (like `tdb` for microsoft binaries)
+    are mapped in at ridiculous addresses (like 0xff00000000000000).
+    If a memory block is mapped into this program
+    """
+    minimum_addr = 0xffffffffffffffff
+    maximum_addr = 0
+    memory_blocks = list(getMemoryBlocks())
+    for m_block in memory_blocks:
+        # tdb is placed at a very large address that is well outside
+        # of the loaded range for most executables
+        if m_block.name in excluded_memory_block_names:
+            continue
+        start = m_block.getStart().getOffset()
+        end = m_block.getEnd().getOffset()
+        if start < minimum_addr:
+            minimum_addr = start
+        if end > maximum_addr:
+            maximum_addr = end
+    return minimum_addr, maximum_addr
+
+
+def search_memory_for_rexp(rexp, save_match_objects=True):
+    """
+    Given a regular expression, search through all of the program's
+    memory blocks for it and return a list of addresses where it was found,
+    as well as a list of the match objects. Set `save_match_objects` to
+    False if you are searching for exceptionally large objects and
+    don't want to keep the matches around
+    """
+    memory_blocks = list(getMemoryBlocks())
+    search_memory_blocks = memory_blocks
+    # TODO: maybe implement filters for which blocks get searched
+    # filter out which memory blocks should actually be searched
+    # search_memory_blocks = [i for i in search_memory_blocks
+    #                         if i.getPermissions() == i.READ]
+    # if additional_search_block_filter is not None:
+    #     search_memory_blocks = [i for i in search_memory_blocks if
+    #                             additional_search_block_filter(i) is True]
+    all_match_addrs = []
+    all_match_objects = []
+    for m_block in search_memory_blocks:
+        if not m_block.isInitialized():
+            continue
+        region_start = m_block.getStart()
+        region_start_int = region_start.getOffset()
+        search_bytes = getBytes(region_start, m_block.getSize())
+        iter_gen = re.finditer(rexp, search_bytes)
+        match_count = 0
+        # hacky loop over matches so that the recursion limit can be caught
+        while True:
+            try:
+                m = next(iter_gen)
+            except StopIteration:
+                # this is where the loop is normally supposed to end
+                break
+            except RuntimeError:
+                # this means that recursion went too deep
+                print("match hit recursion limit on match %d" % match_count)
+                break
+            match_count += 1
+            location_addr = region_start.add(m.start())
+            all_match_addrs.append(location_addr)
+            if save_match_objects:
+                all_match_objects.append(m)
+    return all_match_addrs, all_match_objects
+
+
 class PointerUtils:
-    def __init__(self, program=None):
-        if program is None:
-            program = currentProgram
-        self.addr_fact = program.getAddressFactory()
-        self.addr_space = self.addr_fact.getDefaultAddressSpace()
-        self.ptr_size = self.addr_space.getPointerSize()
-        self.mem = program.getMemory()
+    def __init__(self, ptr_size=8, endian="little"):
+        self.ptr_size = ptr_size
+        if endian.lower() in ["big", "msb", "be"]:
+            self.endian = "big"
+            self.is_big_endian = True
+        elif endian.lower() in ["little", "lsb", "le"]:
+            self.endian = "little"
+            self.is_big_endian = False
+            
         self.ptr_pack_sym = ""
         if self.ptr_size == 4:
             self.ptr_pack_sym = "I"
@@ -30,37 +103,11 @@ class PointerUtils:
             self.ptr_pack_sym = "Q"
 
         self.pack_endian = ""
-        if self.mem.isBigEndian():
+        if self.is_big_endian is True:
             self.pack_endian = ">"
         else:
             self.pack_endian = "<"
         self.ptr_pack_code = self.pack_endian + self.ptr_pack_sym
-        self.minimum_addr_int, self.maximum_addr_int = self.get_memory_bounds()
-        self.minimum_addr_addr = toAddr(self.minimum_addr_int)
-        self.maximum_addr_addr = toAddr(self.maximum_addr_int)
-
-    def get_memory_bounds(self, excluded_memory_block_names=["tdb"]):
-        """
-        Try to identify the bounds of memory that is currently mapped in.
-        Some standard memory blocks (like `tdb` for microsoft binaries)
-        are mapped in at ridiculous addresses (like 0xff00000000000000).
-        If a memory block is mapped into this program
-        """
-        minimum_addr = 0xffffffffffffffff
-        maximum_addr = 0
-        memory_blocks = list(getMemoryBlocks())
-        for m_block in memory_blocks:
-            # tdb is placed at a very large address that is well outside
-            # of the loaded range for most executables
-            if m_block.name in excluded_memory_block_names:
-                continue
-            start = m_block.getStart().getOffset()
-            end = m_block.getEnd().getOffset()
-            if start < minimum_addr:
-                minimum_addr = start
-            if end > maximum_addr:
-                maximum_addr = end
-        return minimum_addr, maximum_addr
 
     def generate_address_range_pattern(self, minimum_addr, maximum_addr):
         """
@@ -86,10 +133,9 @@ class PointerUtils:
         # create a character class that will match the largest changing byte
         boundary_byte_pattern = b"[%s-%s]" % (re.escape(bytearray([boundary_byte_lower])),
                                               re.escape(bytearray([boundary_byte_upper])))
-
         address_pattern = b''
         single_address_pattern = b''
-        if self.mem.isBigEndian() is False:
+        if self.is_big_endian is False:
             packed_addr = struct.pack(self.ptr_pack_code, minimum_addr)
             single_address_pattern = b''.join([wildcard_pattern*wildcard_bytes,
                                                boundary_byte_pattern,
@@ -99,9 +145,6 @@ class PointerUtils:
             single_address_pattern = b''.join([packed_addr[:byte_count],
                                                boundary_byte_pattern,
                                                wildcard_pattern*wildcard_bytes])
-
-        # empty_addr = struct.pack(self.ptr_pack_sym, 0)
-
         address_pattern = b"(%s)" % single_address_pattern
         return address_pattern
 
@@ -125,62 +168,43 @@ class PointerUtils:
         pack_code = "%s%d%s" % (self.pack_endian, fit_len, self.ptr_pack_sym)
         return struct.unpack_from(pack_code, bytarr)
 
-    def search_for_pointer(self, pointer):
+    def gen_pattern_for_pointer(self, pointer):
         """
-        Find all locations where a specific pointer is embedded in memory
+        Generate a regular expression pattern for a pointer
         """
         if isinstance(pointer, GenericAddress):
             pointer = pointer.getOffsetAsBigInteger()
 
         pointer_bytes = struct.pack(self.ptr_pack_code, pointer)
         pointer_pattern = re.escape(pointer_bytes)
-        address_rexp = re.compile(pointer_pattern, re.DOTALL | re.MULTILINE)
-        match_addrs, _ = self.search_memory_for_rexp(address_rexp)
+        return pointer_pattern
+    
+    def compile_rexp_pattern(self, pattern):
+        """
+        Compile a pattern so that it can be searched in a series of bytes
+        """
+        return re.compile(pattern, re.DOTALL | re.MULTILINE)
+
+    def search_for_pointer(self, pointer):
+        """
+        Find all locations where a specific pointer is embedded in memory
+        """
+        pointer_pattern = self.gen_pattern_for_pointer(pointer)
+        address_rexp = self.compile_rexp_pattern(pointer_pattern)
+        match_addrs, _ = search_memory_for_rexp(address_rexp)
         return match_addrs
 
-    def search_memory_for_rexp(self, rexp, save_match_objects=True):
-        """
-        Given a regular expression, search through all of the program's
-        memory blocks for it and return a list of addresses where it was found,
-        as well as a list of the match objects. Set `save_match_objects` to
-        False if you are searching for exceptionally large objects and
-        don't want to keep the matches around
-        """
-        memory_blocks = list(getMemoryBlocks())
-        search_memory_blocks = memory_blocks
-        # TODO: maybe implement filters for which blocks get searched
-        # filter out which memory blocks should actually be searched
-        # search_memory_blocks = [i for i in search_memory_blocks
-        #                         if i.getPermissions() == i.READ]
-        # if additional_search_block_filter is not None:
-        #     search_memory_blocks = [i for i in search_memory_blocks if
-        #                             additional_search_block_filter(i) is True]
 
-        all_match_addrs = []
-        all_match_objects = []
-        for m_block in search_memory_blocks:
-            if not m_block.isInitialized():
-                continue
-            region_start = m_block.getStart()
-            region_start_int = region_start.getOffset()
-            search_bytes = getBytes(region_start, m_block.getSize())
-            iter_gen = re.finditer(rexp, search_bytes)
-            match_count = 0
-            # hacky loop over matches so that the recursion limit can be caught
-            while True:
-                try:
-                    m = next(iter_gen)
-                except StopIteration:
-                    # this is where the loop is normally supposed to end
-                    break
-                except RuntimeError:
-                    # this means that recursion went too deep
-                    print("match hit recursion limit on match %d" % match_count)
-                    break
-                match_count += 1
-                location_addr = region_start.add(m.start())
-                all_match_addrs.append(location_addr)
-                if save_match_objects:
-                    all_match_objects.append(m)
-        return all_match_addrs, all_match_objects
-
+def createPointerUtils(program=None, ptr_size=None, endian=None):
+    if program is None:
+        program = currentProgram
+    if ptr_size is None:
+        ptr_size = program.getDefaultPointerSize()
+    if endian is None:
+        mem = program.getMemory()
+        if mem.isBigEndian():
+            endian = "big"
+        else:
+            endian = "little"
+    pu = PointerUtils(ptr_size, endian)
+    return pu

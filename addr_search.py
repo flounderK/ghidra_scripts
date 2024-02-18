@@ -7,7 +7,7 @@ from ghidra.util.task import ConsoleTaskMonitor
 from ghidra.program.flatapi import FlatProgramAPI
 from ghidra.python import PythonScript
 from ghidra.program.model.symbol import SourceType
-from pointer_utils import PointerUtils
+from pointer_utils import createPointerUtils
 import logging
 
 from __main__ import *
@@ -27,7 +27,7 @@ else:
 
 log.info("[+] Searching for %s", addr)
 
-ptr_util = PointerUtils()
+ptr_util = createPointerUtils()
 
 match_addrs = ptr_util.search_for_pointer(addr)
 for addr in match_addrs:
