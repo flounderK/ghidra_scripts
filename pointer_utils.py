@@ -16,6 +16,13 @@ import struct
 from __main__ import *
 
 
+def compile_byte_rexp_pattern(pattern):
+    """
+    Compile a pattern so that it can be searched in a series of bytes
+    """
+    return re.compile(pattern, re.DOTALL | re.MULTILINE)
+
+
 def get_memory_bounds(excluded_memory_block_names=["tdb"]):
     """
     Try to identify the bounds of memory that is currently mapped in.
@@ -83,6 +90,26 @@ def search_memory_for_rexp(rexp, save_match_objects=True):
             all_match_addrs.append(location_addr)
             if save_match_objects:
                 all_match_objects.append(m)
+    return all_match_addrs, all_match_objects
+
+
+def batch_pattern_memory_search(patterns, batchsize=100, save_match_objects=True):
+    """
+    Works similar to search_memory_for_rexp, but supports running a list of patterns in batches
+    so that python doesn't have to run a 500,000 character regular expression.
+    """
+    def batch(it, sz):
+        for i in range(0, len(it), sz):
+            yield it[i:i+sz]
+    
+    all_match_addrs = []
+    all_match_objects = []
+    for pattern_batch in batch(patterns, batchsize):
+        joined_pattern = b'(%s)' % b'|'.join(pattern_batch)
+        rexp = compile_byte_rexp_pattern(joined_pattern)
+        match_addrs, match_obj = search_memory_for_rexp(rexp, save_match_objects=save_match_objects)
+        all_match_addrs.extend(match_addrs)
+        all_match_objects.extend(match_obj)
     return all_match_addrs, all_match_objects
 
 
@@ -154,7 +181,7 @@ class PointerUtils:
         the provided minimum addr and maximum addr
         """
         address_pattern = self.generate_address_range_pattern(minimum_addr, maximum_addr)
-        address_rexp = re.compile(address_pattern, re.DOTALL | re.MULTILINE)
+        address_rexp = compile_byte_rexp_pattern(address_pattern)
         return address_rexp
 
     def ptr_ints_from_bytearray(self, bytarr):
@@ -179,18 +206,12 @@ class PointerUtils:
         pointer_pattern = re.escape(pointer_bytes)
         return pointer_pattern
     
-    def compile_rexp_pattern(self, pattern):
-        """
-        Compile a pattern so that it can be searched in a series of bytes
-        """
-        return re.compile(pattern, re.DOTALL | re.MULTILINE)
-
     def search_for_pointer(self, pointer):
         """
         Find all locations where a specific pointer is embedded in memory
         """
         pointer_pattern = self.gen_pattern_for_pointer(pointer)
-        address_rexp = self.compile_rexp_pattern(pointer_pattern)
+        address_rexp = compile_byte_rexp_pattern(pointer_pattern)
         match_addrs, _ = search_memory_for_rexp(address_rexp)
         return match_addrs
 
