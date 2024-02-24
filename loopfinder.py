@@ -7,6 +7,7 @@ import ghidra.util.task.TaskMonitor
 from ghidra.program.model.block.graph import CodeBlockEdge, CodeBlockVertex
 from ghidra.graph import GDirectedGraph, GraphFactory, GraphAlgorithms
 import ghidra.graph.algo
+from ghidra.program.model.address import AddressSet
 
 def block_loops_to_self(block, monitor_inst=None):
     """
@@ -111,22 +112,90 @@ def is_addr_in_loop(addr, program=None, monitor_inst=None):
     return False
 
 
-class Circuits(object):
+def getCodeBlockDestinations(block, monitor_inst=None):
+    """
+    Get destination code blocks for a given code block
+    """
+    if monitor_inst is None:
+        monitor_inst = monitor
+    all_dest_blocks = set()
+    block_iter = block.getDestinations(monitor_inst)
+    while block_iter.hasNext():
+        if monitor_inst.isCancelled():
+            break
+        block_ref = block_iter.next()
+        # flow_type = block_ref.getFlowType()
+        # if flow_type.isCall() is True or flow_type.isIndirect() is True:
+        #     continue
+        dest_block = block_ref.getDestinationBlock()
+        if dest_block is None:
+            continue
+        all_dest_blocks.add(dest_block)
+    return all_dest_blocks
+
+
+class Circuit(object):
+    def __init__(self, edges, cfg):
+        self.edges = set(edges)
+        self.vertices = set(sum([[i.getStart(), i.getEnd()] for i in self.edges], []))
+        self.cfg = cfg
+        self.addr_set = self._getAddressSet()
+        self.exit_edges = set()
+        self.exit_vertices = set()
+        self._findLoopExits()
+
+    def _getAddressSet(self):
+        addr_set = AddressSet()
+        for v in self.vertices:
+            for rang in v.getCodeBlock().getAddressRanges():
+                addr_set.add(rang)
+        return addr_set
+
+    def _findLoopExits(self):
+        """
+        Find Vertices that can exit the circuit
+        """
+        self.exit_vertices = set()
+        self.exit_edges = set()
+        for v in self.vertices:
+            has_exit = False
+            # TODO: does this handle verts returning out of the function?
+            # TODO: if not, use getCodeBlockDestinations
+            for e in self.cfg.getOutEdges(v):
+                if e not in self.edges:
+                    self.exit_edges.add(e)
+                    has_exit = True
+            if has_exit is True:
+                self.exit_vertices.add(v)
+
+
+class CircuitCollection(object):
     """
     A simple class to hold loops and success status
     """
-    def __init__(self):
+    def __init__(self, cfg=None):
         # this is false when the circuit finding takes too long
         # private boolean complete
         # private Set<E> allCircuits = new HashSet<>()
         # private Map<V, Set<E>> circuitsByVertex = new HashMap<>()
         self.complete = False
+        # a series of sets, each set representing all of the edges in a loop
         self.allCircuits = set()
         self.circuitsByVertex = {}
+        self.cfg = cfg
+        # a set of Circuit objects
+        self.circuitObjs = set()
 
     def clear(self):
         self.allCircuits = set()
         self.circuitsByVertex = {}
+
+    def addCircuitEdges(self, edges):
+        self.allCircuits.add(edges)
+        circ = Circuit(edges, self.cfg)
+        self.circuitObjs.add(circ)
+
+
 
 
 class LoopFinder(object):
@@ -357,29 +426,6 @@ class GraphPathHelper(object):
             return set()
         return set(circ_set)
 
-    '''
-    def getAsync(self, cf):
-        """
-        CompletableFuture<T> cf
-        returns T
-        """
-
-        try {
-            T t = cf.get() # blocking
-            return t
-        }
-        catch (InterruptedException e) {
-            Msg.trace(VisualGraphPathHighlighter.this,
-                "Unable to calculate graph path highlights - interrupted", e)
-        }
-        catch (ExecutionException e) {
-            Msg.debug(VisualGraphPathHighlighter.this, "Unable to calculate graph path highlights",
-                e)
-        }
-        return null
-    }
-    '''
-
     def calculateCircuitsAsync(self):
         """
         TaskMonitor monitor
@@ -387,7 +433,7 @@ class GraphPathHelper(object):
         """
 
         # Circuits result = new Circuits()
-        result = Circuits()
+        result = CircuitCollection(self.graph)
 
         self.monitor.setMessage("Finding all loops")
         # Set<Set<V>> strongs
@@ -404,7 +450,8 @@ class GraphPathHelper(object):
             subGraph = GraphAlgorithms.createSubGraph(self.graph, vertices)
             # Collection<E> edges
             edges = subGraph.getEdges()
-            result.allCircuits.add(edges)
+            if edges:
+                result.addCircuitEdges(edges)
             # HashSet<E> asSet
             asSet = set(edges)
             # Collection<V> subVertices
