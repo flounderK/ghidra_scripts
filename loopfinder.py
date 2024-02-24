@@ -404,7 +404,7 @@ class GraphPathHelper(object):
             subGraph = GraphAlgorithms.createSubGraph(self.graph, vertices)
             # Collection<E> edges
             edges = subGraph.getEdges()
-            result.allCircuits = result.allCircuits.union(edges)
+            result.allCircuits.add(edges)
             # HashSet<E> asSet
             asSet = set(edges)
             # Collection<V> subVertices
