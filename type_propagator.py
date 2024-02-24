@@ -41,12 +41,12 @@ class FunctionCallArgContext(object):
         arg_num is not equivalent to slot
         """
         self.args[arg_num] = arg
-    
+
     def merge(self, other):
         for k, v in other.args.items():
             existing = self.args.get(k)
             if existing is None:
-                self.args[k] = v        
+                self.args[k] = v
 
     def __repr__(self):
         return "%s(%s)" % (self._to_repr,
@@ -180,7 +180,7 @@ def trace_struct_forward(varnodes, allow_ptrsub_zero=False):
     Trace forward from a varnode or varnodes to all locations in this
     function and in functions called by this function and identify if the
     specified varnodes are passed directly into other functions
-    returns a FunctionArgContextCollection. This effectively traces places where 
+    returns a FunctionArgContextCollection. This effectively traces places where
     a struct pointer is passed as an argument
     """
     if not hasattr(varnodes, '__iter__'):
@@ -264,7 +264,7 @@ def propagate_datatype_forward_to_function_signatures(varnodes, datatype, progra
                 # don't overwrite void* because of functions like memcpy that actually use that type
                 continue
             if existing_datatype == datatype:
-                # if the parameter's datatype is already this datatype, we aren't making a change and shouldn't 
+                # if the parameter's datatype is already this datatype, we aren't making a change and shouldn't
                 # do anything
                 continue
             if force_new is False:
