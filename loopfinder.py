@@ -8,6 +8,8 @@ from ghidra.program.model.block.graph import CodeBlockEdge, CodeBlockVertex
 from ghidra.graph import GDirectedGraph, GraphFactory, GraphAlgorithms
 import ghidra.graph.algo
 from ghidra.program.model.address import AddressSet
+from decomp_utils import DecompUtils
+
 
 def block_loops_to_self(block, monitor_inst=None):
     """
@@ -135,6 +137,9 @@ def getCodeBlockDestinations(block, monitor_inst=None):
 
 
 class Circuit(object):
+    """
+    An object representing a single loop in a function
+    """
     def __init__(self, edges, cfg):
         self.edges = set(edges)
         self.vertices = set(sum([[i.getStart(), i.getEnd()] for i in self.edges], []))
@@ -143,17 +148,34 @@ class Circuit(object):
         self.exit_edges = set()
         self.exit_vertices = set()
         self._findLoopExits()
+        self.exit_target_addr_set = self._getExitTargetAddressSet()
 
     def _getAddressSet(self):
+        """
+        Get an address set for all addresses within this loop
+        """
         addr_set = AddressSet()
         for v in self.vertices:
             for rang in v.getCodeBlock().getAddressRanges():
                 addr_set.add(rang)
         return addr_set
 
+    def _getExitTargetAddressSet(self):
+        """
+        Get an address set for all addresses that can be jumped to
+        when exiting the loop
+        """
+        addr_set = AddressSet()
+        for e in self.exit_edges:
+            end_v = e.getEnd()
+            end_cb = end_v.getCodeBlock()
+            for rang in end_cb.getAddressRanges():
+                addr_set.add(rang)
+        return addr_set
+
     def _findLoopExits(self):
         """
-        Find Vertices that can exit the circuit
+        Find Vertices and edges that can exit the circuit
         """
         self.exit_vertices = set()
         self.exit_edges = set()
@@ -167,6 +189,45 @@ class Circuit(object):
                     has_exit = True
             if has_exit is True:
                 self.exit_vertices.add(v)
+
+    def get_function(self):
+        """
+        Get the function that this loop is a part of
+        """
+        # get Any Vertex from the cfg
+        vert = list(self.cfg.getVertices())[0]
+        return getFunctionContaining(vert.getCodeBlock().getStartAddresses()[0])
+
+    def get_loop_exiting_pcode_blocks(self):
+        """
+        Returns a list of tuples containing pcode basic blocks and the
+        exit type the loop (whether the condition in the loop has to be true or
+        false to exit the loop)
+        """
+        func = self.get_function()
+        du = DecompUtils()
+        pcode_blocks = du.get_pcode_blocks_for_function(func)
+        loop_exiting_blocks = []
+        for exit_edge in self.exit_edges:
+            exit_type = False
+            exit_v = exit_edge.getStart()
+            exit_jmp_target_v = exit_edge.getEnd()
+            jmp_target_start_addrs = exit_jmp_target_v.getCodeBlock().getStartAddresses()
+            v_start_addrs = exit_v.getCodeBlock().getStartAddresses()
+            # should realistically only be one block, but these are the pcode
+            # basic blocks that could exit the loop
+            exit_pcode_blocks = [b for b in pcode_blocks if b.start in v_start_addrs]
+            for b in exit_pcode_blocks:
+                out = b.getFalseOut()
+                if out is not None and out.start in jmp_target_start_addrs:
+                    exit_type = False
+                    loop_exiting_blocks.append((b, exit_type))
+
+                out = b.getTrueOut()
+                if out is not None and out.start in jmp_target_start_addrs:
+                    exit_type = True
+                    loop_exiting_blocks.append((b, exit_type))
+        return loop_exiting_blocks
 
 
 class CircuitCollection(object):
@@ -194,8 +255,6 @@ class CircuitCollection(object):
         self.allCircuits.add(edges)
         circ = Circuit(edges, self.cfg)
         self.circuitObjs.add(circ)
-
-
 
 
 class LoopFinder(object):
@@ -313,7 +372,9 @@ def getDominanceGraph(visualGraph, forward):
 
 class GraphPathHelper(object):
     """
-    based on VisualGraphPathHighlighter.java, but without swing
+    Based on VisualGraphPathHighlighter.java, but without swing.
+    Helps with working with graphs for things like finding loops in
+    a cfg
     """
     def __init__(self, graph, program=None, monitor_inst=None):
         self.graph = graph
@@ -384,7 +445,7 @@ class GraphPathHelper(object):
         # future = self.lazyCreateCircuitFuture()
         # # Circuits circuits = getAsync(future) # blocking operation
         # circuits = getAsync(future) # blocking operation
-        circuits = self.calculateCircuitsAsync()
+        circuits = self.calculateCircuits()
         if circuits is None:
             return set()  # can happen during dispose
         # return Collections.unmodifiableSet(circuits.allCircuits)
@@ -417,7 +478,7 @@ class GraphPathHelper(object):
         # # Circuits circuits = getAsync(future) # blocking operation
         # circuits = getAsync(future) # blocking operation
 
-        circuits = self.calculateCircuitsAsync()
+        circuits = self.calculateCircuits()
         if circuits is None:
             return set()  # can happen during dispose
         # Set<E>
@@ -426,10 +487,10 @@ class GraphPathHelper(object):
             return set()
         return set(circ_set)
 
-    def calculateCircuitsAsync(self):
+    def calculateCircuits(self):
         """
         TaskMonitor monitor
-        returns Circuits
+        returns CircuitCollection
         """
 
         # Circuits result = new Circuits()

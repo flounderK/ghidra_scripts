@@ -143,6 +143,17 @@ class DecompUtils:
             return None
         return list(hf.getPcodeOps())
 
+    def get_pcode_blocks_for_function(self, func, **kwargs):
+        """
+        Get an unsorted list of Pcode Basic Blocks for the
+        function @func
+        """
+        hf = self.get_high_function(func, **kwargs)
+        if hf is None:
+            log.warning("couldn't get high function for %s" % func.name)
+            return None
+        return list(hf.getBasicBlocks())
+
     def varnode_is_direct_source_of(self, source_vn_cand, descendant_vn_cand):
         """
         Check to see if the Varnode @source_vn_cand directly leads to
