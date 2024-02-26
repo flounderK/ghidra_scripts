@@ -9,6 +9,7 @@ from ghidra.graph import GDirectedGraph, GraphFactory, GraphAlgorithms
 import ghidra.graph.algo
 from ghidra.program.model.address import AddressSet
 from decomp_utils import DecompUtils
+import java
 
 
 def block_loops_to_self(block, monitor_inst=None):
@@ -218,15 +219,27 @@ class Circuit(object):
             # basic blocks that could exit the loop
             exit_pcode_blocks = [b for b in pcode_blocks if b.start in v_start_addrs]
             for b in exit_pcode_blocks:
-                out = b.getFalseOut()
+                try:
+                    out = b.getFalseOut()
+                except java.lang.IndexOutOfBoundsException:
+                    # FIXME: this is probably because a call or return
+                    # FIXME: to/from a function called recursively
+                    print("oob exception in %s" % func.name)
+                    out = None
                 if out is not None and out.start in jmp_target_start_addrs:
                     exit_type = False
-                    loop_exiting_blocks.append((b, exit_type))
+                    loop_exiting_blocks.append((b, out, exit_type))
 
-                out = b.getTrueOut()
+                try:
+                    out = b.getTrueOut()
+                except java.lang.IndexOutOfBoundsException:
+                    # FIXME: this is probably because a call or return
+                    # FIXME: to/from a function called recursively
+                    print("oob exception in %s" % func.name)
+                    out = None
                 if out is not None and out.start in jmp_target_start_addrs:
                     exit_type = True
-                    loop_exiting_blocks.append((b, exit_type))
+                    loop_exiting_blocks.append((b, out, exit_type))
         return loop_exiting_blocks
 
 
