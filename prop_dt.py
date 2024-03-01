@@ -22,10 +22,11 @@ selection = currentSelection
 
 if selection:
     addr = selection.minAddress
+    func = getFunctionContaining(addr)
 else:
-    addr = askAddress("enter address of function", "enter address of function")
+    func_name = askString("enter function name", "enter function name")
+    func = getFunction(func_name)
 
 param_num = askInt("Parameter (indexed from 1)", "Parameter (indexed from 1)")
-func = getFunctionContaining(addr)
 
 prop_datatype_from_func_param(func, param_num, program=currentProgram)
