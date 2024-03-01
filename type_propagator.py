@@ -232,7 +232,7 @@ def trace_struct_forward(varnodes, allow_ptrsub_zero=False):
     return func_arg_holder
 
 
-def propagate_datatype_forward_to_function_signatures(varnodes, datatype, program=None, skip_external=True, overwrite_voidp=False, prefer_existing=True, force_new=False):
+def propagate_datatype_forward_to_function_signatures(varnodes, datatype, program=None, skip_external=True, overwrite_voidp=False, prefer_existing=True, force_new=False, undef_only=True):
     """
     Propagate a datatype forward to all function signatures the specified varnodes are passed to
     """
@@ -266,6 +266,8 @@ def propagate_datatype_forward_to_function_signatures(varnodes, datatype, progra
             if existing_datatype == datatype:
                 # if the parameter's datatype is already this datatype, we aren't making a change and shouldn't
                 # do anything
+                continue
+            if undef_only is True and not existing_datatype.name.startswith("undefined"):
                 continue
             if force_new is False:
                 # getMostSpecificDataType prefers the first argument if the datatypes are equally specific
