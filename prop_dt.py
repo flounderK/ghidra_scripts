@@ -3,7 +3,7 @@
 from __main__ import *
 
 from type_propagator import propagate_datatype_forward_to_function_signatures
-from decomp_utls import DecompUtils
+from decomp_utils import DecompUtils
 
 
 def prop_datatype_from_func_param(func, param_num, program=None):
