@@ -11,6 +11,7 @@ import logging
 from decomp_utils import DecompUtils
 from function_signature_utils import set_param_datatype, set_num_params, getDataTypeForParam
 from datatype_utils import getVoidPointerDatatype, areBaseDataTypesEquallyUnique
+from register_utils import getRegToParamMapForFunc
 
 log = logging.getLogger(__file__)
 log.addHandler(logging.StreamHandler())
@@ -281,3 +282,31 @@ def propagate_datatype_forward_to_function_signatures(varnodes, datatype, progra
                     continue
             set_param_datatype(func, param_num, datatype, program)
             func.addTag("AUTO_PROPAGATED_PARAM_%d_DATATYPE" % param_num)
+            # TODO: maybe run fix_underreported_num_params here
+
+
+def fix_underreported_num_params(func):
+    """
+    Decompile the specified function and attempt to fix the number of
+    parameters that the function takes based on the presence of
+    'in_<register-name>' symbols in the local symbol map for the function.
+    This will not work correctly if the function takes in vector registers
+    as parameters
+    """
+    du = DecompUtils(program=func.getProgram())
+    hf = du.get_high_function(func)
+    reg_to_param_map = getRegToParamMapForFunc(func)
+    sym_name_to_param_num_map = {("in_%s" % k): v for k, v in reg_to_param_map.items()}
+
+    cur_num_arguments = len(func.getSignature().getArguments())
+    lsm = hf.getLocalSymbolMap()
+    max_param_num = -1
+    for sym in lsm.getSymbols():
+        maybe_param = sym_name_to_param_num_map.get(sym)
+        if maybe_param is not None:
+            max_param_num = max(max_param_num, maybe_param)
+
+    if max_param_num != -1 and max_param_num != cur_num_arguments:
+        set_num_params(func, max_param_num)
+
+
