@@ -226,7 +226,7 @@ class Circuit(object):
                     # FIXME: to/from a function called recursively
                     print("oob exception in %s" % func.name)
                     out = None
-                if out is not None and out.start in jmp_target_start_addrs:
+                if out is not None and not self.addr_set.contains(out.start):
                     exit_type = False
                     loop_exiting_blocks.append((b, out, exit_type))
 
@@ -237,7 +237,7 @@ class Circuit(object):
                     # FIXME: to/from a function called recursively
                     print("oob exception in %s" % func.name)
                     out = None
-                if out is not None and out.start in jmp_target_start_addrs:
+                if out is not None and not self.addr_set.contains(out.start):
                     exit_type = True
                     loop_exiting_blocks.append((b, out, exit_type))
         return loop_exiting_blocks
