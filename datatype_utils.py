@@ -60,3 +60,13 @@ def areBaseDataTypesEquallyUnique(datatype_a, datatype_b):
     a_meta = MetaDataType.getMeta(datatype_a)
     b_meta = MetaDataType.getMeta(datatype_b)
     return a_meta.compareTo(b_meta) == 0
+
+def applyDataTypeAtAddress(address, datatype, size=None, program=None):
+    if program is None:
+        program = currentProgram
+    if size is None:
+        size = datatype.getLength()
+    listing = program.getListing()
+    listing.clearCodeUnits(address, address.add(size), False)
+    listing.createData(address, datatype, size)
+

@@ -14,7 +14,7 @@ from ghidra.program.database.symbol import CodeSymbol
 from ghidra.program.database.code import DataDB
 from ghidra.program.database.code import InstructionDB
 from ghidra.program.model.data import StructureDataType
-from datatype_utils import getVoidPointerDatatype
+from datatype_utils import getVoidPointerDatatype, applyDataTypeAtAddress
 import struct
 import logging 
 
@@ -174,14 +174,43 @@ def createNewVtableAtAddress(address, vtable_size=None, referring_func=None, pro
             field_name = "%s_%#x" % (func.name, offset)
         new_struct.replaceAtOffset(offset, voidp_dt, ptr_size, field_name, None)
     dtm.addDataType(new_struct, None)
+    # actually apply the datatype
+    applyDataTypeAtAddress(address, new_struct, vtable_size, program=program)
     return new_struct
+
+
+def updateVtableAtAddress(address, vtable_size=None, program=None):
+    raise NotImplemented
+    if program is None:
+        program = currentProgram
+    if vtable_size is None:
+        vtable_size = guessVtableByteSize(address, program=program)
+    data_db = getDataContaining(address)
+    datatype = data_db.getDataType()
+    table_addrs = extractAddressTableEntries(address, vtable_size, program=program)
+    voidp_dt = getVoidPointerDatatype()
+    ptr_size = program.getDefaultPointerSize()
+    for ind, addr in enumerate(table_addrs):
+        offset = ind*ptr_size
+        func = getFunctionAt(addr)
+        field_name = None
+        if func is not None:
+            field_name = "%s_%#x" % (func.name, offset)
+        if field:
+            pass
+        datatype.replaceAtOffset(offset, voidp_dt, ptr_size, field_name, None)
+    # dtm.addDataType(new_struct, None)
+    
 
 
 def createOrUpdateVtableAtAddress(address, vtable_size=None, referring_func=None, program=None):
     if program is None:
         program = currentProgram
-    # TODO: add update
-    vtable_dt = createNewVtableAtAddress(address, vtable_size=vtable_size, referring_func=referring_func, program=program)
+    maybe_dtdb = getDataContaining(address)
+    if maybe_dtdb is not None and maybe_dtdb.isStructure():
+        vtable_dt = updateVtableAtAddress(address, vtable_size=vtable_size, program=program)
+    else:
+        vtable_dt = createNewVtableAtAddress(address, vtable_size=vtable_size, referring_func=referring_func, program=program)
     return vtable_dt
 
 def create_vtable_entrypoint():
