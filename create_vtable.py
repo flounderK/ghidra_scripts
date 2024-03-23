@@ -64,17 +64,20 @@ def guessVtableByteSize(address, program=None, allow_null_ptrs=True):
     curr_addr = address.add(ptr_size)
     last_valid_vtable_entry = address
     to_refs = []
-    while len(to_refs) == 0:
+    addr_sym = None
+    while len(to_refs) == 0 and addr_sym is None:
         to_refs = list(refman.getReferencesTo(curr_addr))       
         maybe_ptr_bytes = bytearray(getBytes(curr_addr, ptr_size))
         maybe_func_addr_int = struct.unpack(ptr_pack_code, maybe_ptr_bytes)[0]
         maybe_func_addr = toAddr(maybe_func_addr_int)
+        addr_sym = getSymbolAt(curr_addr)
         # check to see if it is actually valid code instead of a pointer to other data
         # Can't use refs for this because sometimes an address isn't identified as an address
         # and doesn't generate the reference
         is_valid_addr = mem.getRangeContaining(maybe_func_addr) is not None
         if is_valid_addr is True:
-            if len(to_refs) == 0:
+            # TODO: the structure of this loop should be untangled. for now just repeat loop exit critera
+            if len(to_refs) == 0 and addr_sym is None:
                 cu = listing.getCodeUnitAt(maybe_func_addr)
                 if isinstance(cu, InstructionDB):
                     # this means that it is a label or a func
