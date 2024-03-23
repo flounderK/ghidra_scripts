@@ -3,6 +3,7 @@ from __main__ import *
 from ghidra.program.database.data import DataTypeUtilities
 from ghidra.program.model.data import PointerDataType
 from ghidra.program.model.data import MetaDataType
+from ghidra.program.model.data import EnumDataType
 
 
 def find_datatypes_using(datatype, check_full_chains=True):
