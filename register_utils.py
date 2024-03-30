@@ -34,6 +34,8 @@ def getGeneralPurposeRegsToParamMapForCallingConvention(cc, program=None):
     """
     if program is None:
         program = currentProgram
+    if cc is None:
+        cc = program.getCompilerSpec().getDefaultCallingConvention()
     inp_storage_locs = cc.getPotentialInputRegisterStorage(program)
     gpr_storage_locs = []
     # get all of the non-vector storage locations
@@ -63,6 +65,8 @@ def getRegToParamMapForFunc(func):
     """
     cc = func.getCallingConvention()
     program = func.getProgram()
+    if cc is None:
+        cc = program.getCompilerSpec().getDefaultCallingConvention()
     key = (cc, program)
     maybe_res = GPR_TO_PARAM_MAP_CACHE.get(key)
     if maybe_res is None:

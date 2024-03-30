@@ -10,7 +10,7 @@ from ghidra.program.model.data import DefaultDataType
 import logging
 from decomp_utils import DecompUtils
 from function_signature_utils import set_param_datatype, set_num_params, getDataTypeForParam
-from datatype_utils import getVoidPointerDatatype, areBaseDataTypesEquallyUnique
+from datatype_utils import getVoidPointerDatatype, areBaseDataTypesEquallyUnique, getUndefinedRegisterSizeDatatype
 from register_utils import getRegToParamMapForFunc
 
 log = logging.getLogger(__file__)
@@ -18,6 +18,42 @@ log.addHandler(logging.StreamHandler())
 log.setLevel(logging.DEBUG)
 
 from __main__ import *
+
+
+def fix_underreported_num_params(func):
+    """
+    Decompile the specified function and attempt to fix the number of
+    parameters that the function takes based on the presence of
+    'in_<register-name>' symbols in the local symbol map for the function.
+    This will not work correctly if the function takes in vector registers
+    as parameters
+    """
+    du = DecompUtils(program=func.getProgram())
+    hf = du.get_high_function(func)
+    reg_to_param_map = getRegToParamMapForFunc(func)
+    sym_name_to_param_num_map = {("in_%s" % k): v for k, v in reg_to_param_map.items()}
+
+    cur_num_arguments = len(func.getSignature().getArguments())
+    lsm = hf.getLocalSymbolMap()
+    max_param_num = -1
+    for sym in lsm.getSymbols():
+        maybe_param = sym_name_to_param_num_map.get(sym)
+        if maybe_param is not None:
+            max_param_num = max(max_param_num, maybe_param)
+
+    if max_param_num != -1 and max_param_num != cur_num_arguments:
+        set_num_params(func, max_param_num)
+
+
+def dethunkIfNecessary(func):
+    if func is None:
+        return None
+    ret = func
+    if func.isThunk() is True:
+        dethunked = func.getThunkedFunction(1)
+        if dethunked is not None:
+            ret = dethunked
+    return ret
 
 
 class FunctionCallArgContext(object):
@@ -32,6 +68,7 @@ class FunctionCallArgContext(object):
         if to_address is not None:
             self._to_repr = str(to_address)
             self.called_to_func = getFunctionContaining(to_address)
+            self.called_to_func = dethunkIfNecessary(self.called_to_func)
             if self.called_to_func is not None:
                 self._to_repr = self.called_to_func.name
 
@@ -199,6 +236,8 @@ def trace_struct_forward(varnodes, allow_ptrsub_zero=False):
         if curr_func is None:
             log.error("Have to skip %s because no to func could be identified" % str(curr_arg_ctx))
             continue
+        if curr_func.hasVarArgs() is True:
+            continue
         in_vns = []
         was_error = False
         for param_num, v in curr_arg_ctx.args.items():
@@ -253,14 +292,20 @@ def propagate_datatype_forward_to_function_signatures(varnodes, datatype, progra
         func = arg_ctx.called_to_func
         if func.isThunk():
             func = func.getThunkedFunction(1)
+
+        # variadic arguments are never safe to handle because they can make 
+        # ghidra start hallucinating varnodes 
+        if func.hasVarArgs() is True:
+            continue
         # changing types on externals can cause some issues, so avoid it by default
         if func.isExternal() and skip_external is True:
             continue
+        set_any_params = False
         for param_num, param_v in arg_ctx.args.items():
             existing_datatype = getDataTypeForParam(func, param_num)
             if existing_datatype is None:
-                log.warning("existing datatype was None for %s param %d. Running Decompiler Parameter ID analysis may resolve this." % (func.name, param_num))
-                existing_datatype = DefaultDataType()
+                log.warning("existing datatype was None for %s param %d" % (func.name, param_num))
+                existing_datatype = getUndefinedRegisterSizeDatatype()
             if existing_datatype == voidp_dt and overwrite_voidp is False:
                 # don't overwrite void* because of functions like memcpy that actually use that type
                 continue
@@ -282,31 +327,21 @@ def propagate_datatype_forward_to_function_signatures(varnodes, datatype, progra
                     continue
             set_param_datatype(func, param_num, datatype, program)
             func.addTag("AUTO_PROPAGATED_PARAM_%d_DATATYPE" % param_num)
-            # TODO: maybe run fix_underreported_num_params here
+            set_any_params = True
+
+        if set_any_params is True:
+            # setting only one param can cause ghidra to assume that no parameters past the new one exist,
+            # so make a best effort attempt to resolve that.
+            fix_underreported_num_params(func)
 
 
-def fix_underreported_num_params(func):
-    """
-    Decompile the specified function and attempt to fix the number of
-    parameters that the function takes based on the presence of
-    'in_<register-name>' symbols in the local symbol map for the function.
-    This will not work correctly if the function takes in vector registers
-    as parameters
-    """
-    du = DecompUtils(program=func.getProgram())
-    hf = du.get_high_function(func)
-    reg_to_param_map = getRegToParamMapForFunc(func)
-    sym_name_to_param_num_map = {("in_%s" % k): v for k, v in reg_to_param_map.items()}
+def prop_datatype_from_func_param(func, param_num, program=None):
+    if program is None:
+        program = currentProgram
 
-    cur_num_arguments = len(func.getSignature().getArguments())
-    lsm = hf.getLocalSymbolMap()
-    max_param_num = -1
-    for sym in lsm.getSymbols():
-        maybe_param = sym_name_to_param_num_map.get(sym)
-        if maybe_param is not None:
-            max_param_num = max(max_param_num, maybe_param)
-
-    if max_param_num != -1 and max_param_num != cur_num_arguments:
-        set_num_params(func, max_param_num)
-
-
+    sig = func.getSignature()
+    args = list(sig.getArguments())
+    dt = args[param_num-1].getDataType()
+    du = DecompUtils(program)
+    vns = du.get_varnodes_for_param(func, param_num)
+    propagate_datatype_forward_to_function_signatures(vns, dt, program=program)
