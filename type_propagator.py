@@ -20,16 +20,11 @@ log.setLevel(logging.DEBUG)
 from __main__ import *
 
 
-def fix_underreported_num_params(func):
-    """
-    Decompile the specified function and attempt to fix the number of
-    parameters that the function takes based on the presence of
-    'in_<register-name>' symbols in the local symbol map for the function.
-    This will not work correctly if the function takes in vector registers
-    as parameters
-    """
+def guessNumParamsFromDecompilation(func):
     du = DecompUtils(program=func.getProgram())
     hf = du.get_high_function(func)
+    if hf is None:
+        return 0
     reg_to_param_map = getRegToParamMapForFunc(func)
     sym_name_to_param_num_map = {("in_%s" % k): v for k, v in reg_to_param_map.items()}
 
@@ -41,6 +36,19 @@ def fix_underreported_num_params(func):
         if maybe_param is not None:
             max_param_num = max(max_param_num, maybe_param)
 
+    return max(cur_num_arguments, max_param_num)
+
+
+def fix_underreported_num_params(func):
+    """
+    Decompile the specified function and attempt to fix the number of
+    parameters that the function takes based on the presence of
+    'in_<register-name>' symbols in the local symbol map for the function.
+    This will not work correctly if the function takes in vector registers
+    as parameters
+    """
+    cur_num_arguments = len(func.getSignature().getArguments())
+    max_param_num = guessNumParamsFromDecompilation(func)
     if max_param_num != -1 and max_param_num != cur_num_arguments:
         set_num_params(func, max_param_num)
 
