@@ -22,6 +22,23 @@ def get_calling_addresses_to_address(address, program=None):
     return calling_addrs
 
 
+def get_called_addresses_from_address(address, program=None):
+    """
+    get the addresses that call @address
+    """
+    if program is None:
+        program = currentProgram
+    refman = program.getReferenceManager()
+    called_addrs = list()
+    references = refman.getReferencesFrom(address)
+    for ref in references:
+        ref_type = ref.getReferenceType()
+        if ref_type.isCall() is False:
+            continue
+        called_addrs.append(ref.toAddress)
+    return called_addrs
+
+
 def get_callsites_for_func_by_name(func_name, program=None):
     """
     Return a dictionary of {Function: [call address, ..]}
@@ -94,15 +111,13 @@ def get_all_functions_leading_to(func, program=None):
     return visited
 
 
-def get_all_functions_called_from(func, program=None, monitor_inst=None):
+def get_all_functions_called_from(func, program=None):
     """
     Get a list of all functions called by @func and
     any functions that are called by those functions, etc.
     """
     if program is None:
         program = currentProgram
-    if monitor_inst is None:
-        monitor_inst = monitor
 
     if func is None:
         return set()
@@ -111,9 +126,15 @@ def get_all_functions_called_from(func, program=None, monitor_inst=None):
     visited = set()
     while to_visit:
         curr_func = to_visit.pop()
-        # TODO: do this without a monitor
-        called_funcs = curr_func.getCalledFunctions(monitor_inst)
-        for called_func in called_funcs:
+        called_addrs = []
+        for rang in curr_func.getBody():
+            for addr in rang:
+                called_addrs += list(get_called_addresses_from_address(addr, program=program))
+        # called_addrs = curr_func.getCalledFunctions(monitor_inst)
+        for called_addr in called_addrs:
+            called_func = getFunctionContaining(called_addr)
+            if called_func is None:
+                continue
             if called_func in visited:
                 continue
             if called_func in to_visit:
