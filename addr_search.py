@@ -3,9 +3,6 @@
 #@keybinding ctrl 0
 #@category Utils
 
-from ghidra.util.task import ConsoleTaskMonitor
-from ghidra.program.flatapi import FlatProgramAPI
-from ghidra.python import PythonScript
 from ghidra.program.model.symbol import SourceType
 from pointer_utils import createPointerUtils
 import logging
