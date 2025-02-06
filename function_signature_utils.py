@@ -1,6 +1,5 @@
 from __main__ import *
 
-from ghidra.app.script import GhidraScript
 from ghidra.app.cmd.function import ApplyFunctionSignatureCmd
 from ghidra.program.model.data import Category
 from ghidra.program.model.data import CategoryPath
