@@ -4,8 +4,6 @@
 #@category Utils
 
 import ghidra
-from ghidra.program.flatapi import FlatProgramAPI
-from ghidra.python import PythonScript
 from ghidra.program.model.symbol import SourceType
 from ghidra.program.model.address import GenericAddress, Address
 
