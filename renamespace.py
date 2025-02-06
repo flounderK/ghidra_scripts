@@ -2,8 +2,6 @@
 #@author Clifton Wolfe
 #@category C++
 import ghidra
-from ghidra.program.flatapi import FlatProgramAPI
-from ghidra.python import PythonScript
 from ghidra.program.model.symbol import SourceType
 import string
 import re
