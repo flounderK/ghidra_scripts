@@ -1,6 +1,4 @@
 from ghidra.program.model.pcode import PcodeOpAST, VarnodeAST
-from ghidra.program.flatapi import FlatProgramAPI
-from ghidra.python import PythonScript
 from ghidra.program.util import FunctionSignatureFieldLocation
 from ghidra.program.model.symbol import FlowType, RefType, SourceType
 from ghidra.app.cmd.function import ApplyFunctionSignatureCmd
