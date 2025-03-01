@@ -45,15 +45,23 @@ def group_by_increment(iterable, group_incr, field_access=None, do_sort=True):
 
 def bnot(n, numbits=None):
     if numbits is None:
-        numbits = currentProgram.getDefaultPointerSize()
+        numbits = currentProgram.getDefaultPointerSize()*8
     return (1 << numbits) -1 -n
 
 
 def align(val, align_to, numbits=None):
     if numbits is None:
-        numbits = currentProgram.getDefaultPointerSize()
+        numbits = currentProgram.getDefaultPointerSize()*8
     return val & bnot(align_to - 1, numbits)
 
+
+def align_up(val, align_to, numbits=None):
+    if numbits is None:
+        numbits = currentProgram.getDefaultPointerSize()*8
+    aligned = align(val, align_to, numbits)
+    if aligned < val:
+        aligned += align_to
+    return aligned
 
 
 class PseudoMemoryRegion:
@@ -68,7 +76,10 @@ class PseudoMemoryRegion:
         if values:
             self.start = values[0]
             self.end = values[-1]
-        self.start = align(self.start, align_to)
+        aligned_start = align(self.start, align_to)
+        # resolves a bug with constants larger than pointer size
+        if aligned_start != 0:
+            self.start = aligned_start
         self.values = values
         self.length = (self.end + pad_end_by) - self.start
     def __repr__(self):
@@ -104,7 +115,7 @@ const_groups = group_by_increment(sorted_consts, GROUP_INCR)
 
 pmrs = [PseudoMemoryRegion(g) for g in const_groups]
 ptr_size = currentProgram.getDefaultPointerSize()
-[i for i in pmrs if i.length > 0 and i.start >= 0 and i.start.bit_length() <= ptr_size]
+valid_pmrs = [i for i in pmrs if i.length > 0 and i.start >= 0 and (i.start.bit_length() <= ptr_size*8 and i.end.bit_length() <= ptr_size*8)]
 
 
 # get an address set for all current memory blocks
@@ -115,4 +126,8 @@ for m_block in getMemoryBlocks():
         continue
     existing_mem_addr_set.add(m_block.getAddressRange())
 
-
+hex_ptr_size = (ptr_size*2)+2
+print("start end length aligned length")
+fmt = "%%#0%dx-%%#0%dx %%#010x %%#010x" % (hex_ptr_size, hex_ptr_size)
+for pmr in valid_pmrs:
+    print(fmt % (pmr.start, pmr.end, pmr.length, align_up(pmr.length, 0x1000)))
