@@ -79,12 +79,13 @@ for dat in listing.getDefinedData(1):
     off = addr_repr.subtract(dat_cont.address)
     set_typedef_dt = None
     for dt in typedef_dts:
-        if dt.dataType != dat_cont.dataType:
+        if dt.dataType.dataType != dat_cont.dataType:
             continue
         comp_off = dt.defaultSettings.getValue("component_offset")
         if comp_off is None:
             continue
         if comp_off == off:
+            log.debug("found matching type for %s" % dat_cont.dataType.name)
             set_typedef_dt = dt
             break
 
@@ -99,10 +100,4 @@ for dat in listing.getDefinedData(1):
         default_settings = set_typedef_dt.getDefaultSettings()
         ComponentOffsetSettingsDefinition.DEF.setValue(default_settings, off)
     applyDataTypeAtAddress(dat.address, set_typedef_dt)
-
-
-
-
-
-
 
