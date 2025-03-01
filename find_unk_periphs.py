@@ -65,7 +65,7 @@ def align_up(val, align_to, numbits=None):
 
 
 class PseudoMemoryRegion:
-    def __init__(self, values=None, start=0, end=0, align_to=0x1000, pad_end_by=0):
+    def __init__(self, values=None, save_values=True, start=0, end=0, align_to=0x1000, pad_end_by=0):
         if values is None:
             values = []
         # python 2 list copy
@@ -80,54 +80,99 @@ class PseudoMemoryRegion:
         # resolves a bug with constants larger than pointer size
         if aligned_start != 0:
             self.start = aligned_start
-        self.values = values
+        if save_values:
+            self.values = values
+        else:
+            self.values = []
         self.length = (self.end + pad_end_by) - self.start
     def __repr__(self):
         return "PseudoMemoryRegion(%#x-%#x, length=%#x)" % (self.start, self.end, self.length)
 
 
+class PeriphFinder:
+    def __init__(self, group_incr=0x1000):
+        self.group_incr = group_incr
+        self.const_counts = defaultdict(lambda: 0)
+        self.const_set = set()
+        self.pmrs = []
 
-du = DecompUtils()
+    def find_code_accessed_consts(self):
+        du = DecompUtils()
 
-const_counts = defaultdict(lambda: 0)
-const_set = set()
+        # establish groups of constants
+        for func in currentProgram.getFunctionManager().getFunctions(1):
+            log.debug("looking at %s" % func.name)
+            pcode_ops = du.get_pcode_for_function(func)
+            if pcode_ops is None:
+                continue
+            vns = sum([list(i.inputs) for i in pcode_ops], [])
+            for vn in vns:
+                if vn.isConstant() or vn.isAddress():
+                    # TODO: maybe fix this is it is negative
+                    off = vn.getOffset()
+                    self.const_counts[off] += 1
+                    self.const_set.add(off)
 
-GROUP_INCR = 0x1000-1
+    def find_defined_consts(self):
+        listing = currentProgram.getListing()
+        for dat in listing.getDefinedData(1):
+            if dat.valueClass is None:
+                val = dat.value
+                if val is None:
+                    continue
+                int_val = val.getUnsignedValue()
+                self.const_set.add(int_val)
+                self.const_counts[int_val] += 1
+            if dat.isPointer():
+                val = dat.value
+                if val is None:
+                    continue
+                int_val = val.getOffsetAsBigInteger()
+                self.const_set.add(int_val)
+                self.const_counts[int_val] += 1
+            # TODO: maybe handle structs, unions, and arrays
 
-# establish groups of constants
-for func in currentProgram.getFunctionManager().getFunctions(1):
-    log.debug("looing at %s" % func.name)
-    pcode_ops = du.get_pcode_for_function(func)
-    if pcode_ops is None:
-        continue
-    vns = sum([list(i.inputs) for i in pcode_ops], [])
-    for vn in vns:
-        if vn.isConstant() or vn.isAddress():
-            # TODO: maybe fix this is it is negative
-            off = vn.getOffset()
-            const_counts[off] += 1
-            const_set.add(off)
+    def find_periphs(self):
+        self.find_code_accessed_consts()
+        self.find_defined_consts()
+        sorted_consts = list(self.const_set)
+        sorted_consts.sort()
+        # group consts by how close they are to eachother
+        const_groups = group_by_increment(sorted_consts, self.group_incr)
+        pmrs = [PseudoMemoryRegion(g) for g in const_groups]
+        ptr_size = currentProgram.getDefaultPointerSize()
+        self.pmrs = []
+        for i in pmrs:
+            if i.length == 0:
+                continue
+            if i.start < 0:
+                continue
+            if i.start.bit_length() > ptr_size*8:
+                continue
+            if i.end.bit_length() > ptr_size*8:
+                continue
+            self.pmrs.append(i)
+        return self.pmrs
 
-sorted_consts = list(const_set)
-sorted_consts.sort()
 
-const_groups = group_by_increment(sorted_consts, GROUP_INCR)
+def print_possible_periph_regions():
+    # get an address set for all current memory blocks
+    existing_mem_addr_set = AddressSet()
+    for m_block in getMemoryBlocks():
+        # cut sections that are unused
+        if not (m_block.isRead() or m_block.isWrite() or m_block.isExecute()):
+            continue
+        existing_mem_addr_set.add(m_block.getAddressRange())
 
-pmrs = [PseudoMemoryRegion(g) for g in const_groups]
-ptr_size = currentProgram.getDefaultPointerSize()
-valid_pmrs = [i for i in pmrs if i.length > 0 and i.start >= 0 and (i.start.bit_length() <= ptr_size*8 and i.end.bit_length() <= ptr_size*8)]
+    pf = PeriphFinder()
+    valid_pmrs = pf.find_periphs()
+    ptr_size = currentProgram.getDefaultPointerSize()
+    hex_ptr_size = (ptr_size*2)+2
+    print("start end length aligned length")
+    fmt = "%%#0%dx-%%#0%dx %%#010x %%#010x" % (hex_ptr_size, hex_ptr_size)
+    for pmr in valid_pmrs:
+        print(fmt % (pmr.start, pmr.end, pmr.length, align_up(pmr.length, 0x1000)))
 
 
-# get an address set for all current memory blocks
-existing_mem_addr_set = AddressSet()
-for m_block in getMemoryBlocks():
-    # cut sections that are unused
-    if not (m_block.isRead() or m_block.isWrite() or m_block.isExecute()):
-        continue
-    existing_mem_addr_set.add(m_block.getAddressRange())
-
-hex_ptr_size = (ptr_size*2)+2
-print("start end length aligned length")
-fmt = "%%#0%dx-%%#0%dx %%#010x %%#010x" % (hex_ptr_size, hex_ptr_size)
-for pmr in valid_pmrs:
-    print(fmt % (pmr.start, pmr.end, pmr.length, align_up(pmr.length, 0x1000)))
+if __name__ == "__main__":
+    print_possible_periph_regions()
