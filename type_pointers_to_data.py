@@ -8,6 +8,7 @@ from ghidra.program.database.data import PointerDB
 from ghidra.program.database.data import TypedefDB
 from ghidra.program.model.data import TypedefDataType
 from ghidra.program.model.data import ComponentOffsetSettingsDefinition
+from ghidra.program.model.scalar import Scalar
 import logging
 
 log = logging.getLogger(__file__)
@@ -39,22 +40,29 @@ useful_dat = []
 listing = currentProgram.getListing()
 for dat in listing.getDefinedData(1):
     addr_repr = None
+    # handle undefined datatype
     if dat.valueClass is None:
         val = dat.value
         if val is None:
             continue
         int_val = val.getUnsignedValue()
         addr_repr = toAddr(int_val)
+    # handle all pointer datatypes
     if dat.isPointer():
         val = dat.value
         if val is None:
             continue
-        # TODO: detect type
+        # TODO: detect type pointed to
         int_val = val.getOffsetAsBigInteger()
         addr_repr = val
+    # handle other scalar values, (uint, int, etc.)
+    if isinstance(dat.value, Scalar):
+        addr_repr = toAddr(dat.value.value)
     if addr_repr is None:
         continue
 
+    # find all of the defined data in the program that could
+    # be a pointer to the current model of memory
     if not existing_mem_addr_set.contains(addr_repr):
         continue
     useful_dat.append(dat)
@@ -65,7 +73,7 @@ for dat in listing.getDefinedData(1):
     if dat_cont.isStructure() is False:
         continue
 
-    # apply datatype if addresses match
+    # apply datatype if addresses matches to start of defined data
     if dat_cont.address == addr_repr:
         new_type = dtm.getPointer(dat_cont.dataType)
         if curr_dt != new_type:
@@ -73,13 +81,19 @@ for dat in listing.getDefinedData(1):
             applyDataTypeAtAddress(dat.address, new_type)
         continue
 
+    # if address didn't match, it means that a pointer offset typedef
+    # needs to be used.
     # iterate through existing typedefs to see if one already exists
     # that will work correctly
     typedef_dts = [dt for dt in dtm.getAllDataTypes() if isinstance(dt, TypedefDB)]
     off = addr_repr.subtract(dat_cont.address)
     set_typedef_dt = None
     for dt in typedef_dts:
-        if dt.dataType.dataType != dat_cont.dataType:
+        pointed_dt = dt.dataType
+        # only care about typedefs to pointers, so skip the rest
+        if not isinstance(pointed_dt, PointerDB):
+            continue
+        if pointed_dt.dataType != dat_cont.dataType:
             continue
         comp_off = dt.defaultSettings.getValue("component_offset")
         if comp_off is None:
