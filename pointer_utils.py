@@ -1,4 +1,4 @@
-# Utility Class for interacting with pointers. To get an instance of the class, 
+# Utility Class for interacting with pointers. To get an instance of the class,
 # use createPointerUtils
 #@author Clifton Wolfe
 #@category Utils
@@ -99,7 +99,7 @@ def batch_pattern_memory_search(patterns, batchsize=100, save_match_objects=True
     def batch(it, sz):
         for i in range(0, len(it), sz):
             yield it[i:i+sz]
-    
+
     all_match_addrs = []
     all_match_objects = []
     for pattern_batch in batch(patterns, batchsize):
@@ -120,7 +120,7 @@ class PointerUtils:
         elif endian.lower() in ["little", "lsb", "le"]:
             self.endian = "little"
             self.is_big_endian = False
-            
+
         self.ptr_pack_sym = ""
         if self.ptr_size == 4:
             self.ptr_pack_sym = "I"
@@ -156,8 +156,16 @@ class PointerUtils:
         boundary_byte_upper = (maximum_addr >> (wildcard_bytes*8)) & 0xff
         boundary_byte_lower = (minimum_addr >> (wildcard_bytes*8)) & 0xff
         # create a character class that will match the largest changing byte
-        boundary_byte_pattern = b"[%s-%s]" % (re.escape(bytearray([boundary_byte_lower])),
-                                              re.escape(bytearray([boundary_byte_upper])))
+        lower_byte = bytearray([boundary_byte_lower])
+        upper_byte = bytearray([boundary_byte_upper])
+        # re.escape breaks depending on version of python,
+        # converting bytes to strings. instead, manually escape
+        # TODO: add a test case for this to make sure that python
+        # TODO: isn't matching against the backslash for the end byte
+        escaped_lower_byte = b'\\' + lower_byte # re.escape(lower_byte)
+        escaped_upper_byte = b'\\' + upper_byte # re.escape(upper_byte)
+        boundary_byte_pattern = b"[%s-%s]" % (escaped_lower_byte,
+                                              escaped_upper_byte)
         address_pattern = b''
         single_address_pattern = b''
         if self.is_big_endian is False:
@@ -203,7 +211,7 @@ class PointerUtils:
         pointer_bytes = struct.pack(self.ptr_pack_code, pointer)
         pointer_pattern = re.escape(pointer_bytes)
         return pointer_pattern
-    
+
     def search_for_pointer(self, pointer):
         """
         Find all locations where a specific pointer is embedded in memory
