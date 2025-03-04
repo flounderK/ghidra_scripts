@@ -155,6 +155,8 @@ class PointerUtils:
         wildcard_pattern = b"[\x00-\xff]"
         boundary_byte_upper = (maximum_addr >> (wildcard_bytes*8)) & 0xff
         boundary_byte_lower = (minimum_addr >> (wildcard_bytes*8)) & 0xff
+        if boundary_byte_upper < boundary_byte_lower:
+            boundary_byte_upper, boundary_byte_lower = boundary_byte_lower, boundary_byte_upper
         # create a character class that will match the largest changing byte
         lower_byte = bytearray([boundary_byte_lower])
         upper_byte = bytearray([boundary_byte_upper])
@@ -162,8 +164,10 @@ class PointerUtils:
         # converting bytes to strings. instead, manually escape
         # TODO: add a test case for this to make sure that python
         # TODO: isn't matching against the backslash for the end byte
-        escaped_lower_byte = b'\\' + lower_byte # re.escape(lower_byte)
-        escaped_upper_byte = b'\\' + upper_byte # re.escape(upper_byte)
+        escaped_lower_byte = re.escape(lower_byte)
+        escaped_lower_byte = bytearray(escaped_lower_byte)
+        escaped_upper_byte = re.escape(upper_byte)
+        escaped_upper_byte = bytearray(escaped_upper_byte)
         boundary_byte_pattern = b"[%s-%s]" % (escaped_lower_byte,
                                               escaped_upper_byte)
         address_pattern = b''
