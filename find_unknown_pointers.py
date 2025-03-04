@@ -77,24 +77,38 @@ def gen_address_range_rexp(minimum_addr, maximum_addr, program=None):
     return address_pattern
 
 
+def create_full_memory_rexp(program=None):
+    if program is None:
+        program = currentProgram
+    patterns = []
+    # get an address set for all current memory blocks
+    for m_block in getMemoryBlocks():
+        start = m_block.start.getOffsetAsBigInteger()
+        end = m_block.end.getOffsetAsBigInteger()
+        pat = gen_address_range_rexp(start, end)
+        log.debug("adding pattern '%s'" % pat)
+        patterns.append(pat)
+
+    full_pat = '(%s)' % '|'.join(patterns)
+    log.debug("full pattern '%s'" % full_pat)
+    return full_pat
+
+
+def create_full_mem_addr_set():
+    existing_mem_addr_set = AddressSet()
+    for m_block in getMemoryBlocks():
+        existing_mem_addr_set.add(m_block.getAddressRange())
+    return existing_mem_addr_set
+
+
 def identify_unknown_pointers(program=None, align_to=4):
     if program is None:
         program = currentProgram
     dtm = program.getDataTypeManager()
     ptr_dt = [i for i in dtm.getAllDataTypes() if i.name == 'pointer'][0]
     listing = program.getListing()
-
-    patterns = []
-    # get an address set for all current memory blocks
-    existing_mem_addr_set = AddressSet()
-    for m_block in getMemoryBlocks():
-        existing_mem_addr_set.add(m_block.getAddressRange())
-        start = m_block.start.getOffsetAsBigInteger()
-        end = m_block.end.getOffsetAsBigInteger()
-        pat = gen_address_range_rexp(start, end)
-        patterns.append(pat)
-
-    full_pat = '(%s)' % '|'.join(patterns)
+    existing_mem_addr_set = create_full_mem_addr_set()
+    full_pat = create_full_memory_rexp(program=program)
     for addr in findBytes(existing_mem_addr_set, full_pat, 100000, align_to, True):
 
         if addr.getOffsetAsBigInteger() % align_to != 0:
