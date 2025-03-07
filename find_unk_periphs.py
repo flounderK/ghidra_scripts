@@ -65,9 +65,11 @@ def align_up(val, align_to, numbits=None):
 
 
 class PseudoMemoryRegion:
-    def __init__(self, values=None, save_values=True, start=0, end=0, align_to=0x1000, pad_end_by=0):
+    def __init__(self, values=None, ref_count=0, exec_count=0, save_values=True, start=0, end=0, align_to=0x1000, pad_end_by=0):
         if values is None:
             values = []
+        self.ref_count = ref_count
+        self.exec_count = exec_count
         # python 2 list copy
         values = [i for i in values]
         values.sort()
@@ -93,11 +95,16 @@ class PeriphFinder:
     def __init__(self, group_incr=0x1000):
         self.group_incr = group_incr
         self.const_counts = defaultdict(lambda: 0)
+        self.exec_const_counts = defaultdict(lambda: 0)
         self.const_set = set()
         self.pmrs = []
 
     def find_code_accessed_consts(self):
+        """
+        Find constants accessed by pcode ops
+        """
         du = DecompUtils()
+        call_ops = [PcodeOpAST.CALL, PcodeOpAST.CALLIND]
 
         # establish groups of constants
         for func in currentProgram.getFunctionManager().getFunctions(1):
@@ -105,15 +112,25 @@ class PeriphFinder:
             pcode_ops = du.get_pcode_for_function(func)
             if pcode_ops is None:
                 continue
-            vns = sum([list(i.inputs) for i in pcode_ops], [])
-            for vn in vns:
-                if vn.isConstant() or vn.isAddress():
-                    # TODO: maybe fix this is it is negative
+            for op in pcode_ops:
+                # vns = sum([list(i.inputs) for i in pcode_ops], [])
+                vns = op.inputs
+                for i, vn in enumerate(vns):
+                    if not vn.isConstant() and not vn.isAddress():
+                        continue
+                    # TODO: maybe fix this is offset is negative
                     off = vn.getOffset()
                     self.const_counts[off] += 1
                     self.const_set.add(off)
+                    # record if the ref was a call
+                    if op.opcode in call_ops and i == 0:
+                        self.exec_const_counts[off] += 1
+
 
     def find_defined_consts(self):
+        """
+        Iterate through defined data and identify all consts
+        """
         listing = currentProgram.getListing()
         for dat in listing.getDefinedData(1):
             if dat.valueClass is None:
@@ -139,7 +156,12 @@ class PeriphFinder:
         sorted_consts.sort()
         # group consts by how close they are to eachother
         const_groups = group_by_increment(sorted_consts, self.group_incr)
-        pmrs = [PseudoMemoryRegion(g) for g in const_groups]
+        pmrs = []
+        for g in const_groups:
+            ref_count = sum([self.const_counts.get(i, 0) for i in g])
+            exec_count = sum([self.exec_const_counts.get(i, 0) for i in g])
+            pmrs.append(PseudoMemoryRegion(g, ref_count=ref_count,
+                                           exec_count=exec_count))
         ptr_size = currentProgram.getDefaultPointerSize()
         self.pmrs = []
         for i in pmrs:
@@ -168,10 +190,10 @@ def print_possible_periph_regions():
     valid_pmrs = pf.find_periphs()
     ptr_size = currentProgram.getDefaultPointerSize()
     hex_ptr_size = (ptr_size*2)+2
-    print("start end length aligned length")
-    fmt = "%%#0%dx-%%#0%dx %%#010x %%#010x" % (hex_ptr_size, hex_ptr_size)
+    print("start end length aligned length refcount exec")
+    fmt = "%%#0%dx-%%#0%dx %%#010x %%#010x %%d exec=%%d" % (hex_ptr_size, hex_ptr_size)
     for pmr in valid_pmrs:
-        print(fmt % (pmr.start, pmr.end, pmr.length, align_up(pmr.length, 0x1000)))
+        print(fmt % (pmr.start, pmr.end, pmr.length, align_up(pmr.length, 0x1000), pmr.ref_count, pmr.exec_count))
 
 
 if __name__ == "__main__":
