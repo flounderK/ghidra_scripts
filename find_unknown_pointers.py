@@ -101,15 +101,22 @@ def create_full_mem_addr_set():
     return existing_mem_addr_set
 
 
+def find_full_mem_pointers(program=None, align_to=4):
+    if program is None:
+        program = currentProgram
+    existing_mem_addr_set = create_full_mem_addr_set()
+    full_pat = create_full_memory_rexp(program=program)
+    for addr in findBytes(existing_mem_addr_set, full_pat, 100000, align_to, True):
+        yield addr
+
+
 def identify_unknown_pointers(program=None, align_to=4):
     if program is None:
         program = currentProgram
     dtm = program.getDataTypeManager()
     ptr_dt = [i for i in dtm.getAllDataTypes() if i.name == 'pointer'][0]
     listing = program.getListing()
-    existing_mem_addr_set = create_full_mem_addr_set()
-    full_pat = create_full_memory_rexp(program=program)
-    for addr in findBytes(existing_mem_addr_set, full_pat, 100000, align_to, True):
+    for addr in find_full_mem_pointers(program=program, align_to=align_to):
 
         if addr.getOffsetAsBigInteger() % align_to != 0:
             continue
@@ -126,6 +133,7 @@ def identify_unknown_pointers(program=None, align_to=4):
         applyDataTypeAtAddress(addr, ptr_dt)
 
 
-identify_unknown_pointers()
+if __name__ == "__main__":
+    identify_unknown_pointers()
 
 
