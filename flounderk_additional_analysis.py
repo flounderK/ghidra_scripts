@@ -1,4 +1,4 @@
-# Additional analysis that I find to be useful
+# tag functions that are registering callback functions
 #@author Clifton Wolfe
 #@category Analysis
 
@@ -39,7 +39,7 @@ def tag_callback_registration(program=None, rename_unnamed_referring_funcs=True,
         if rename_unnamed_referring_funcs is True and referring_func.name.startswith("FUN_"):
             generated_name = generate_placeholder_function_name(referring_func, "registerCallback")
             referring_func.setName(generated_name, SourceType.USER_DEFINED)
-            
+
         for ref in refs:
             referenced_func = getFunctionContaining(ref.toAddress)
             if referenced_func is None:
@@ -48,8 +48,8 @@ def tag_callback_registration(program=None, rename_unnamed_referring_funcs=True,
             if rename_unnamed_callback_funcs is True and referenced_func.name.startswith("FUN_"):
                 generated_name = generate_placeholder_function_name(referenced_func, "callback")
                 referenced_func.setName(generated_name, SourceType.USER_DEFINED)
-        
-        
+
+
 
 if __name__ == "__main__":
     tag_callback_registration(currentProgram)
