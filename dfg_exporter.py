@@ -18,6 +18,7 @@ def get_function_call_graph_map():
         for called_func in func.getCalledFunctions(monitor):
             called_key = called_func.getEntryPoint()
             call_map[func_key].add(called_key)
+            call_map[called_key]
 
     call_map = dict(call_map)
     serializable_call_map = {k: list(v) for k, v in call_map.items()}
