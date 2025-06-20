@@ -31,8 +31,8 @@ def find_datatypes_using(datatype, check_full_chains=True):
 
 def getUndefinedRegisterSizeDatatype(program=None):
     """
-    Returns an "undefined*" datatype that is the appropriate 
-    size to hold a pointer. Useful if you don't know the real datatype 
+    Returns an "undefined*" datatype that is the appropriate
+    size to hold a pointer. Useful if you don't know the real datatype
     and expect it to have to be changed later
     """
     if program is None:
@@ -69,4 +69,38 @@ def applyDataTypeAtAddress(address, datatype, size=None, program=None):
     listing = program.getListing()
     listing.clearCodeUnits(address, address.add(size), False)
     listing.createData(address, datatype, size)
+
+
+def get_all_sub_components_of_datadb(datadb):
+    initial_db = datadb
+    visited = set()
+    to_visit = set([datadb])
+    while to_visit:
+        curr_db = to_visit.pop()
+        for ind in range(curr_db.getNumComponents()):
+            comp = curr_db.getComponent(ind)
+            if comp == initial_db:
+                continue
+            if comp in visited:
+                continue
+            if comp in to_visit:
+                continue
+            if comp == curr_db:
+                continue
+            to_visit.add(comp)
+        visited.add(curr_db)
+    return visited
+
+
+def get_all_defined_datatype_instances(dt):
+    using_dt_set = find_datatypes_using(dt)
+    listing = currentProgram.getListing()
+    dats = [i for i in listing.getDefinedData(1) if hasattr(i, "dataType") and i.dataType in using_dt_set]
+    instances = []
+    for dat in dats:
+        if hasattr(dat, "isPointer") and dat.isPointer() is True:
+            continue
+        matching_comps = [comp for comp in get_all_sub_components_of_datadb(dat) if hasattr(comp, "dataType") and comp.dataType == dt]
+        instances.extend(matching_comps)
+    return instances
 
