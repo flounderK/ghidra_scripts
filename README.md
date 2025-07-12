@@ -5,7 +5,7 @@
 Ghidra's API is still pretty minimal, so a lot of these scripts just add another layer of API on-top of ghidra's existing `FlatProgramAPI` for functions that I have found to be useful but that aren't easily accessible or that require a bit more setup than I feel that they should. In general, I will try to keep a naming scheme of `*_utils` to mirror the strategy present in a lot of ghidra's code of making `static` `*Utilities` classes, which are generally the most usable and useful parts of ghidra's existing API.
 
 ### call_ref_utils.py
-Utilities for working will call references, mostly for following the call graph, finding callsites through thunks, finding all callsites for a function name, or creating new indirect call references 
+Utilities for working will call references, mostly for following the call graph, finding callsites through thunks, finding all callsites for a function name, or creating new indirect call references
 
 ### datatype_utils.py
 Utilities for finding datatypes, finding datatypes that meet certain constraints, finding datatype usage within other datatypes, and finding field usage across the program as a whole.
@@ -32,7 +32,7 @@ utilities for working with registers
 ## Useful automation and analysis scripts
 
 ### addr_search.py
-Work flow script to search for an embedded address. If ghidra doesn't find a reference to a function and you think it is getting called, run this script on the address to find potential references to it. May be broken with current version of ghidra. 
+Work flow script to search for an embedded address. If ghidra doesn't find a reference to a function and you think it is getting called, run this script on the address to find potential references to it. May be broken with current version of ghidra.
 
 ### find_unk_periphs.py
 Constant analysis script to search for all of the constant values used in the binary, or a subsection of it. this outputs a map of what all of the constant values would look like as a memory map, along with a small number of stats on number of accesses and whether the access was an execution.
@@ -44,7 +44,7 @@ Regions that are very close to 0 or regions that are very close to 0xffffffff or
 Highlight the listing view from addresses listed in a file. Decent for viewing coverage from fuzzing.
 
 ### find_and_ops.py
-Example script for finding every instance of a specific pcode op in raw (not refined) pcode. 
+Example script for finding every instance of a specific pcode op in raw (not refined) pcode.
 
 ### find_str_constant.py
 sometimes does magic with identifying string functions by looking for specific constant values
@@ -56,7 +56,7 @@ Exactly what it is named, but to clarify, identifies possible missing cross refe
 finds references to all of the different defined memory regions in code and attempts to change function names to more explicitly associate them with that memory region if accessing the memory region is all the function is actually doing
 
 ### print_funcs_by_refcount.py
-print functions in order by the number of references to it there are
+print functions in order by the number of references to it there are. It is often useful to name the most called functions and fix up their parameters to speed up reversing of the whole binary.
 
 ### source_file_grouping.py
 Auto rename functions if they don't have a name yet and have a reference to a `.c` filepath in them, as would commonly be seen passed into assert functions.
@@ -65,7 +65,7 @@ Auto rename functions if they don't have a name yet and have a reference to a `.
 identify functions that look like they are registering callback functions
 
 ### type_pointers_to_data.py
-Identify already defined data in memory that can be represented as a pointer to a currently established memory region. If it can and there is a defined data type at the pointed to address, change the type of the pointer appropriately. Also automatically creates a "pointer offset" typedef if the pointer is to the middle of a struct, which is somewhat common. 
+Identify already defined data in memory that can be represented as a pointer to a currently established memory region. If it can and there is a defined data type at the pointed to address, change the type of the pointer appropriately. Also automatically creates a "pointer offset" typedef if the pointer is to the middle of a struct, which is somewhat common.
 
 This is very useful for architectures like arm that frequently utilize a "constant pool" for each function because ghidra will not automatically change the types of pointers in constant pools.
 
