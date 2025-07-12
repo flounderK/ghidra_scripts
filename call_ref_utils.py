@@ -2,7 +2,8 @@
 from __main__ import *
 
 from collections import defaultdict
-from ghidra.program.model.symbol import FlowType, RefType
+from ghidra.program.model.symbol import FlowType, RefType, SourceType, MemReferenceImpl
+import re
 
 
 def get_calling_addresses_to_address(address, program=None):
@@ -150,4 +151,23 @@ def get_all_functions_called_from(func, program=None):
         visited.remove(func)
     return visited
 
+
+def  add_unconditional_call_ref(call_addr, call_to_addr, primary=False):
+    listing = currentProgram.getListing()
+    COMMENT_PRE = 1
+    call_to_addr_repr = ""
+    func = getFunctionContaining(call_to_addr)
+    if func is not None:
+        call_to_addr_repr = func.name
+    else:
+        call_to_addr_repr = str(call_to_addr)
+    comment_str = "indirect call to %s @ %s here" % (call_to_addr_repr, call_addr)
+    existing_comment_str = listing.getComment(COMMENT_PRE, call_addr)
+    rexp = re.compile("indirect call to .+ @ %s here" % call_addr)
+    if existing_comment_str is not None and re.search(rexp, existing_comment_str) is None:
+        comment_str = existing_comment_str +  "\n" + comment_str
+    listing.setComment(call_addr, COMMENT_PRE, comment_str)
+    ref_impl = MemReferenceImpl(call_addr, call_to_addr, RefType.UNCONDITIONAL_CALL, SourceType.USER_DEFINED, 0, primary)
+    refman = currentProgram.getReferenceManager()
+    refman.addReference(ref_impl)
 
