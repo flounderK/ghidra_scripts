@@ -26,6 +26,12 @@ Utilities for searching for embedded addresses or address ranges
 ## addr_search.py
 Search for an embedded address. If ghidra doesn't find a reference to a function and you think it is getting called, run this script on the address to find potential references to it.
 
+## find_unk_periphs.py
+Constant analysis script to search for all of the constant values used in the binary, or a subsection of it. this outputs a map of what all of the constant values would look like as a memory map, along with a small number of stats on number of accesses and whether the access was an execution.
+You can then create a new memory region in the memory window to view all of the new cross references.
+Regions that are very close to 0 or regions that are very close to 0xffffffff or 0xffffffffffffffff can often be ignored as they are frequently just normal integers that are not used as pointers.
+**NOTE: this will create false positives**
+
 ## A few notes about weirdness in scripts
 I try to write just about everything in `python` for these because it is quicker for me to write, but because ghidra uses `Jython` certain oddities are needed to improve the usability or functionality for things that would not necessarily be needed if I wrote these in `java`.
 
