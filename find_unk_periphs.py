@@ -1,9 +1,11 @@
+# analyze constants in the program to find "hot spots" where there are many references near one another
 from __main__ import *
 from decomp_utils import DecompUtils
 from ghidra.program.model.pcode import PcodeOpAST
 from ghidra.app.decompiler.component import DecompilerUtils
 from ghidra.program.model.symbol import FlowType, RefType
 from ghidra.program.model.address import AddressSet
+from ghidra.program.database.code import InstructionDB
 from collections import defaultdict
 import logging
 
@@ -92,12 +94,32 @@ class PseudoMemoryRegion:
 
 
 class PeriphFinder:
-    def __init__(self, group_incr=0x1000):
+    def __init__(self, group_incr=0x1000, addr_ranges=None):
         self.group_incr = group_incr
         self.const_counts = defaultdict(lambda: 0)
         self.exec_const_counts = defaultdict(lambda: 0)
         self.const_set = set()
         self.pmrs = []
+        if addr_ranges is None:
+            self.addr_ranges = []
+        else:
+            self.addr_ranges = addr_ranges
+
+    def get_selected_functions(self):
+        """
+        return a list of functions in self.addr_range or a list of all functions
+        """
+        if not self.addr_ranges:
+            # do everything if no functions are selected
+            return currentProgram.getFunctionManager().getFunctions(1)
+        funcs = set()
+        for addr_range in self.addr_ranges:
+            for addr in addr_range:
+                func = getFunctionContaining(addr)
+                if func is None:
+                    continue
+                funcs.add(func)
+        return list(funcs)
 
     def find_code_accessed_consts(self):
         """
@@ -107,7 +129,7 @@ class PeriphFinder:
         call_ops = [PcodeOpAST.CALL, PcodeOpAST.CALLIND]
 
         # establish groups of constants
-        for func in currentProgram.getFunctionManager().getFunctions(1):
+        for func in self.get_selected_functions():
             log.debug("looking at %s" % func.name)
             pcode_ops = du.get_pcode_for_function(func)
             if pcode_ops is None:
@@ -118,7 +140,7 @@ class PeriphFinder:
                 for i, vn in enumerate(vns):
                     if not vn.isConstant() and not vn.isAddress():
                         continue
-                    # TODO: maybe fix this is offset is negative
+                    # TODO: maybe fix this if offset is negative
                     off = vn.getOffset()
                     self.const_counts[off] += 1
                     self.const_set.add(off)
@@ -126,17 +148,49 @@ class PeriphFinder:
                     if op.opcode in call_ops and i == 0:
                         self.exec_const_counts[off] += 1
 
+    def get_selected_data(self):
+        """
+        return a list of defined data accessed or contained in self.addr_range or a list of all defined data
+        """
+        if not self.addr_ranges:
+            listing = currentProgram.getListing()
+            return listing.getDefinedData(1)
+        funcs = self.get_selected_functions()
+        return self.get_defined_data_for_funcs(funcs)
+
+    def get_defined_data_for_funcs(self, funcs):
+        """
+        resolve data stored in literal pools
+        """
+        def_data = []
+        listing = currentProgram.getListing()
+        refman = currentProgram.getReferenceManager()
+        for func in funcs:
+            for addr_range in func.getBody():
+                for addr in addr_range:
+                    for ref in refman.getReferencesFrom(addr):
+                        to_addr = ref.toAddress
+                        dat = listing.getDefinedDataContaining(to_addr)
+                        if dat is None:
+                            continue
+                        def_data.append(dat)
+        return def_data
 
     def find_defined_consts(self):
         """
         Iterate through defined data and identify all consts
         """
         listing = currentProgram.getListing()
-        for dat in listing.getDefinedData(1):
+        for dat in self.get_selected_data():
             if dat.valueClass is None:
                 val = dat.value
                 if val is None:
-                    continue
+                    if not dat.address:
+                        continue
+                    val = dat.address
+                    int_val = val.getOffsetAsBigInteger()
+                else:
+                    int_val = val.getUnsignedValue()
                 int_val = val.getUnsignedValue()
                 self.const_set.add(int_val)
                 self.const_counts[int_val] += 1
@@ -165,8 +219,9 @@ class PeriphFinder:
         ptr_size = currentProgram.getDefaultPointerSize()
         self.pmrs = []
         for i in pmrs:
-            if i.length == 0:
-                continue
+            # cut because this removes valid regions with only a single access in them
+            # if i.length == 0:
+            #     continue
             if i.start < 0:
                 continue
             if i.start.bit_length() > ptr_size*8:
@@ -186,12 +241,12 @@ def print_possible_periph_regions():
             continue
         existing_mem_addr_set.add(m_block.getAddressRange())
 
-    pf = PeriphFinder()
+    pf = PeriphFinder(addr_ranges=state.currentSelection)
     valid_pmrs = pf.find_periphs()
     ptr_size = currentProgram.getDefaultPointerSize()
     hex_ptr_size = (ptr_size*2)+2
     print("start end length aligned length refcount exec")
-    fmt = "%%#0%dx-%%#0%dx %%#010x %%#010x %%d exec=%%d" % (hex_ptr_size, hex_ptr_size)
+    fmt = "%%#0%dx - %%#0%dx %%#010x %%#010x refs=%%d exec=%%d" % (hex_ptr_size, hex_ptr_size)
     for pmr in valid_pmrs:
         print(fmt % (pmr.start, pmr.end, pmr.length, align_up(pmr.length, 0x1000), pmr.ref_count, pmr.exec_count))
 
