@@ -27,6 +27,7 @@ OBJ=$(BUILD_DIR)
 
 OBJECTS += src/main.o
 OBJECTS += src/int_under_overflow.o
+OBJECTS += src/structs.o
 
 RELEASE_OBJECT_FILES=$(addprefix $(OBJ)/release/, $(OBJECTS))
 DBG_OBJECT_FILES=$(addprefix $(OBJ)/debug/, $(OBJECTS))
