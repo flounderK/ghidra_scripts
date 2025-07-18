@@ -1,9 +1,10 @@
 from __main__ import *
-import struct
 from datatype_utils import applyDataTypeAtAddress
 
 
 def gen_name_to_field_map(dt):
+    if not hasattr(dt, "getNumComponents"):
+        return {}
     fields = [dt.getComponent(i) for i in range(dt.getNumComponents())]
     field_map = {}
     for field in fields:
@@ -13,24 +14,16 @@ def gen_name_to_field_map(dt):
     return field_map
 
 
-
 class DataAccessProxy:
-    SIZE_CODES = {
-        1: "B",
-        2: "H",
-        4: "I",
-        8: "Q"
-    }
     def __init__(self, datadb):
         self.listing = currentProgram.getListing()
         self.datadb = datadb
         self.datatype = datadb.dataType
-        self._end_code = ">" if datadb.isBigEndian() else "<"
         self.field_map = {}
         if hasattr(self.datatype, "getNumComponents"):
             self.field_map = gen_name_to_field_map(self.datatype)
 
-    def access_field_by_name(self, name):
+    def field(self, name):
         """
         Access DataComponent by name
         """
@@ -38,32 +31,41 @@ class DataAccessProxy:
         comp = self.datadb.getComponentAt(field.getOffset())
         return comp
 
-    def access_name_value(self, name):
-        comp = self.access_field_by_name(name)
+    def name_value(self, name):
+        comp = self.field(name)
         val = comp.value
-        if comp.isPointer():
+        if comp.isPointer() and val != toAddr(0):
+            # TODO handle function pointers
             cu = self.listing.getCodeUnitAt(val)
             val = DataAccessProxy(cu)
         return val
 
-    def proxy_from_field_name(self, name):
-        return DataAccessProxy(self.access_field_by_name(name))
+    def proxy_field(self, name):
+        dap = DataAccessProxy(self.field(name))
+        if dap.isPointer():
+            dap = self.name_value(name)
+        return dap
 
-    def full_access(self, name):
+    def full_proxy_access(self, name):
         comp_names = list(name.split("."))[::-1]
         curr = self
         while len(comp_names) > 1:
             curr_name = comp_names.pop()
-            curr = curr.proxy_from_field_name(curr_name)
+            curr = curr.proxy_field(curr_name)
 
         curr_name = comp_names.pop()
-        return curr.access_name_value(curr_name)
+        return curr.name_value(curr_name)
+
+    def isPointer(self):
+        if hasattr(self.datadb, "isPointer") and self.datadb.isPointer():
+            return True
+        return False
 
     def __repr__(self):
         return "DAP:%s@%s" % (str(self.datadb), self.datadb.address)
 
     def __getitem__(self, name):
-        return self.full_access(name)
+        return self.full_proxy_access(name)
 
     @property
     def value(self):
