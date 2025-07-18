@@ -67,7 +67,7 @@ def applyDataTypeAtAddress(address, datatype, size=None, program=None):
     if size is None:
         size = datatype.getLength()
     listing = program.getListing()
-    listing.clearCodeUnits(address, address.add(size), False)
+    listing.clearCodeUnits(address, address.add(size-1), False)
     listing.createData(address, datatype, size)
 
 
