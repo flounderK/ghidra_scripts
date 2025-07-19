@@ -2,11 +2,12 @@ from __main__ import *
 from ghidra.program.util import DefinedDataIterator
 import re
 from collections import defaultdict
-from ghidra.program.model.symbol import SymbolType
+from ghidra.program.model.symbol import SymbolType, SourceType
 
 def get_source_file_to_func_mapping(rexp="\.c$"):
     program = currentProgram
-    data_iter = DefinedDataIterator(program)
+    listing = program.getListing()
+    data_iter = listing.getDefinedData(1)
     refman = program.getReferenceManager()
     string_data_list = []
     while data_iter.hasNext():
