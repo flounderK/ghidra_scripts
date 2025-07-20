@@ -21,8 +21,11 @@ for instr in listing.getInstructions(True):
             continue
         func = getFunctionContaining(op.seqnum.target)
         func_to_cmp_count[func] += 1
-        func_to_cmp_op[func].append(op)
+        # func_to_cmp_op[func].append(op)
 
 
 func_to_cmp_count_list = list(func_to_cmp_count.items())
 func_to_cmp_count_list.sort(key=lambda a: a[1], reverse=True)
+
+for func, num_cmps in func_to_cmp_count_list[:100]:
+    print("%s : %d" % (func, num_cmps))
