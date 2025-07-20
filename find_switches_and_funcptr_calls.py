@@ -8,6 +8,7 @@ refman = currentProgram.getReferenceManager()
 target_ops = [PcodeOpAST.BRANCHIND, PcodeOpAST.CALLIND]
 func_to_op_count = defaultdict(lambda: 0)
 func_to_op = defaultdict(list)
+func_to_addrs = defaultdict(list)
 listing = currentProgram.getListing()
 last_op = None
 for instr in listing.getInstructions(True):
@@ -39,6 +40,7 @@ for instr in listing.getInstructions(True):
         func = getFunctionContaining(op.seqnum.target)
         func_to_op_count[func] += 1
         func_to_op[func].append(op)
+        func_to_addrs[func].append(op.seqnum.target)
         last_op = op.opcode
 
 
@@ -46,4 +48,8 @@ func_to_op_count_list = list(func_to_op_count.items())
 func_to_op_count_list.sort(key=lambda a: a[1], reverse=True)
 
 for func, num_cmps in func_to_op_count_list[:100]:
+    addrs = func_to_addrs[func]
     print("%s : %d" % (func, num_cmps))
+    for addr in addrs:
+        print(addr)
+    print("")
