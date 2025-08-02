@@ -106,7 +106,7 @@ def find_full_mem_pointers(program=None, align_to=4):
         program = currentProgram
     existing_mem_addr_set = create_full_mem_addr_set()
     full_pat = create_full_memory_rexp(program=program)
-    for addr in findBytes(existing_mem_addr_set, full_pat, 100000, align_to, True):
+    for addr in findBytes(existing_mem_addr_set, full_pat, 100000, align_to):
         yield addr
 
 
