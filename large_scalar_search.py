@@ -88,7 +88,7 @@ def large_scalar_search(search_val, scalar_mask=0xffffffffffffffff, max_scalar_d
         # TODO: this can be optimized to only run a single regex, but at the cost of having
         # TODO: to extract each value and do a few lookups to sort correctly by subval. easy now,
         # TODO: but would be much more work with non-8-bit aligned values
-        matches = [i for i in findBytes(full_mem_addr_set, rexp, 100000, align, True)]
+        matches = [i for i in findBytes(full_mem_addr_set, rexp, 100000, align)]
         matches_by_subval[subval] = matches
     # merge all of the matches into a unified list for grouping
     joined_matches = sum(matches_by_subval.values(), [])
