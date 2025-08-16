@@ -6,12 +6,65 @@ from ghidra.app.decompiler.component import DecompilerUtils
 from ghidra.program.model.symbol import FlowType, RefType
 from ghidra.program.model.address import AddressSet
 from ghidra.program.database.code import InstructionDB
+from ghidra.app.tablechooser import TableChooserDialog
+from ghidra.app.tablechooser import TableChooserExecutor
+from ghidra.app.tablechooser import AddressableRowObject
+from ghidra.app.tablechooser import AbstractComparableColumnDisplay
+from ghidra.program.model.address import Address
 from collections import defaultdict
 import logging
 
 log = logging.getLogger(__file__)
 log.addHandler(logging.StreamHandler())
 log.setLevel(logging.DEBUG)
+
+
+class QuickRow(AddressableRowObject):
+    def __init__(self, address):
+        self._address = address
+        self.fields = {}
+        super(QuickRow, self).__init__()
+    def getAddress(self):
+        return self._address
+    @property
+    def address(self):
+        return self._address
+    @staticmethod
+    def create(address, **kwargs):
+        row = QuickRow(address)
+        for k, v in kwargs.items():
+            row.fields[k] = v
+        return row
+
+
+def new_column(name):
+    class ValColumn(AbstractComparableColumnDisplay):
+        COLUMN_NAME = None
+        def __init__(self):
+            super(ValColumn, self).__init__()
+        @staticmethod
+        def getColumnValue(o):
+            return o.fields.get(ValColumn.COLUMN_NAME)
+        @staticmethod
+        def getColumnName():
+            return ValColumn.COLUMN_NAME
+    ValColumn.COLUMN_NAME = name
+    return ValColumn()
+
+
+class TabEx(TableChooserExecutor):
+    def __init__(self):
+        super(TabEx, self).__init__()
+    def execute(rowObj):
+        pass
+    def rowSelected(self, obj):
+        if isinstance(obj, list) and len(obj) > 0:
+            addr = obj[0]
+            if isinstance(addr, Address):
+                goto(addr)
+    @staticmethod
+    def getButtonName():
+        return "apply"
 
 
 def group_by_increment(iterable, group_incr, field_access=None, do_sort=True):
@@ -190,8 +243,11 @@ class PeriphFinder:
                     val = dat.address
                     int_val = val.getOffsetAsBigInteger()
                 else:
-                    int_val = val.getUnsignedValue()
-                int_val = val.getUnsignedValue()
+                    if hasattr(val, "getUnsignedValue"):
+                        int_val = val.getUnsignedValue()
+                    elif hasattr(val, "getOffsetAsBigInteger"):
+                        int_val = val.getOffsetAsBigInteger()
+                # int_val = val.getUnsignedValue()
                 self.const_set.add(int_val)
                 self.const_counts[int_val] += 1
             if dat.isPointer():
@@ -251,5 +307,31 @@ def print_possible_periph_regions():
         print(fmt % (pmr.start, pmr.end, pmr.length, align_up(pmr.length, 0x1000), pmr.ref_count, pmr.exec_count))
 
 
+def make_table_chooser_dialog():
+    executor = TabEx()
+    dialog = createTableChooserDialog("Choose Regions", executor, True)
+    # dialog.addCustomColumn(new_column("address"))
+    dialog.addCustomColumn(new_column("end"))
+    dialog.addCustomColumn(new_column("length"))
+    dialog.addCustomColumn(new_column("alignedLength"))
+    dialog.addCustomColumn(new_column("refcount"))
+    dialog.addCustomColumn(new_column("execRefcount"))
+
+    pf = PeriphFinder(addr_ranges=state.currentSelection)
+    valid_pmrs = pf.find_periphs()
+    for pmr in valid_pmrs:
+        kwargs = {
+            "end": toAddr(pmr.end),
+            "length": pmr.length,
+            "alignedLength": align_up(pmr.length, 0x1000),
+            "refcount": pmr.ref_count,
+            "execRefcount": pmr.exec_count,
+        }
+        dialog.add(QuickRow.create(toAddr(pmr.start), **kwargs))
+        # print("adding %s" % str(pmr))
+    state.tool.showDialog(dialog)
+
+
 if __name__ == "__main__":
-    print_possible_periph_regions()
+    # print_possible_periph_regions()
+    make_table_chooser_dialog()
