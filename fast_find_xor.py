@@ -5,7 +5,7 @@ from decomp_utils import DecompUtils
 import logging
 
 
-DO_DECOMPILE = True
+DO_DECOMPILE = False
 log = logging.getLogger(__file__)
 log.addHandler(logging.StreamHandler())
 log.setLevel(logging.DEBUG)
@@ -24,6 +24,10 @@ for instr in listing.getInstructions(True):
     for op in raw_ops:
         if not op.opcode in target_ops:
             last_op = op.opcode
+            continue
+        
+        # filter out ops like xor eax, eax
+        if op.getInput(0) == op.getInput(1):
             continue
         
         func = getFunctionContaining(op.seqnum.target)
