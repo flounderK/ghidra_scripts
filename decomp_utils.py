@@ -1,4 +1,4 @@
-
+#@runtime Jython
 from __main__ import *
 from ghidra.app.decompiler import DecompileOptions
 from ghidra.app.decompiler import DecompInterface
