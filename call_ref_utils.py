@@ -1,4 +1,4 @@
-
+#@runtime Jython
 from __main__ import *
 
 from collections import defaultdict
