@@ -1,3 +1,4 @@
+#@runtime Jython
 from __main__ import *
 from ghidra.program.model.pcode import PcodeOpAST
 from collections import defaultdict
