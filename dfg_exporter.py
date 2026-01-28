@@ -1,3 +1,4 @@
+#@runtime Jython
 from __main__ import *
 from decomp_utils import DecompUtils
 import json
