@@ -1,4 +1,4 @@
-
+#@runtime Jython
 from __main__ import *
 from ghidra.program.database.data import DataTypeUtilities
 from ghidra.program.model.data import PointerDataType
