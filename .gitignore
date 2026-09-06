@@ -6,3 +6,5 @@ __pycache__/
 *.pyc
 tests/test_output.log
 tests/decomp_cache_output.log
+tests/api_test_binary
+tests/api_test_output.log

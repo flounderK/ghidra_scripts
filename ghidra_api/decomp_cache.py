@@ -38,21 +38,11 @@ invalidate its callers. Call invalidate() explicitly in that case.
 from __main__ import *
 from ghidra.framework.model import DomainObjectListener
 from ghidra.framework.model import DomainObjectClosedListener
-from ._compat import get_bytes
+from ._compat import get_bytes, CAUGHT_ERRORS
 import binascii
 import logging
 import threading
 from collections import OrderedDict
-
-try:
-    # In Jython a Java exception is not a Python Exception, so a plain
-    # `except Exception` silently fails to catch anything thrown by Ghidra.
-    # Under CPython/PyGhidra the import fails and Java errors arrive as
-    # ordinary Python exceptions.
-    from java.lang import Exception as JavaException
-    CAUGHT_ERRORS = (Exception, JavaException)
-except:  # noqa: E722 - must not itself use `except Exception`
-    CAUGHT_ERRORS = (Exception,)
 
 log = logging.getLogger(__file__)
 log.addHandler(logging.StreamHandler())

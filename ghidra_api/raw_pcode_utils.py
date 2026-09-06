@@ -16,7 +16,7 @@ def get_addr_set_for_ops_in_func(func, target_opcodes):
     listing = currentProgram.getListing()
     raw_pcode_ops = get_raw_pcode_for_func(func)
     op_addrs = [i.seqnum.target for i in raw_pcode_ops if i.opcode in target_opcodes]
-    target_instrs = [listing.getCodeUnitConaining(i) for i in op_addrs]
+    target_instrs = [listing.getCodeUnitContaining(i) for i in op_addrs]
     addr_set = AddressSet()
     for inst in target_instrs:
         addr_set.add(AddressRangeImpl(inst.minAddress, inst.maxAddress))

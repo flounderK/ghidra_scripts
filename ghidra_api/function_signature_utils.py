@@ -66,7 +66,8 @@ def set_num_params(func, num_params, widen_undef_params=True, widen_undef_return
 
     existing_sig.setArguments(params)
     if var_args is True:
-        existing_args.setVarArgs(True)
+        # existing_args is a plain list; the flag belongs on the signature
+        existing_sig.setVarArgs(True)
 
     if widen_undef_return is True:
         return_type = existing_sig.getReturnType()

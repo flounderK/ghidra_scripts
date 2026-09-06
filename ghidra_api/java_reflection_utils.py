@@ -42,7 +42,7 @@ def satisfies_parameter_constraints(method_or_constr, constraints):
     if max_constraint_ind > param_count-1:
         return False
     # check param constraints
-    if param_count <= 0:
+    if param_count > 0:
         param_types_arr = method_or_constr.getParameterTypes()
         for param_ind, expected_param_type in constraints.items():
             # check each parameter constraint present

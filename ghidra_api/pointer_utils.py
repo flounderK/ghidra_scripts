@@ -14,6 +14,19 @@ import struct
 from __main__ import *
 
 
+def hex_escape_bytes(raw):
+    """Render raw bytes as regex hex escapes.
+
+    Address bytes are spliced into patterns as literals, so any byte that is
+    a regex metacharacter -- 0x5c (backslash) above all -- would otherwise
+    change what the pattern means.
+    """
+    out = []
+    for value in bytearray(raw):
+        out.append(b"\\x%02x" % value)
+    return b"".join(out)
+
+
 def compile_byte_rexp_pattern(pattern):
     """
     Compile a pattern so that it can be searched in a series of bytes
@@ -152,34 +165,27 @@ class PointerUtils:
 
         # generate a sufficient wildcard character classes for all of the bytes that could fully change
         wildcard_bytes = byte_count - 1
-        wildcard_pattern = b"[\x00-\xff]"
+        wildcard_pattern = b"[\\x00-\\xff]"
         boundary_byte_upper = (maximum_addr >> (wildcard_bytes*8)) & 0xff
         boundary_byte_lower = (minimum_addr >> (wildcard_bytes*8)) & 0xff
         if boundary_byte_upper < boundary_byte_lower:
             boundary_byte_upper, boundary_byte_lower = boundary_byte_lower, boundary_byte_upper
-        # create a character class that will match the largest changing byte
-        lower_byte = bytearray([boundary_byte_lower])
-        upper_byte = bytearray([boundary_byte_upper])
-        # re.escape breaks depending on version of python,
-        # converting bytes to strings. instead, manually escape
-        # TODO: add a test case for this to make sure that python
-        # TODO: isn't matching against the backslash for the end byte
-        escaped_lower_byte = re.escape(lower_byte)
-        escaped_lower_byte = bytearray(escaped_lower_byte)
-        escaped_upper_byte = re.escape(upper_byte)
-        escaped_upper_byte = bytearray(escaped_upper_byte)
-        boundary_byte_pattern = b"[%s-%s]" % (escaped_lower_byte,
-                                              escaped_upper_byte)
+        # Create a character class matching the largest changing byte.
+        # re.escape() cannot take a bytearray under Jython 2.7, and escaping
+        # by hand risks the boundary byte being a regex metacharacter (0x5c
+        # is a backslash). Hex escapes avoid both problems.
+        boundary_byte_pattern = b"[\\x%02x-\\x%02x]" % (boundary_byte_lower,
+                                                       boundary_byte_upper)
         address_pattern = b''
         single_address_pattern = b''
         if self.is_big_endian is False:
             packed_addr = struct.pack(self.ptr_pack_code, minimum_addr)
             single_address_pattern = b''.join([wildcard_pattern*wildcard_bytes,
                                                boundary_byte_pattern,
-                                               packed_addr[byte_count:]])
+                                               hex_escape_bytes(packed_addr[byte_count:])])
         else:
             packed_addr = struct.pack(self.ptr_pack_code, minimum_addr)
-            single_address_pattern = b''.join([packed_addr[:byte_count],
+            single_address_pattern = b''.join([hex_escape_bytes(packed_addr[:byte_count]),
                                                boundary_byte_pattern,
                                                wildcard_pattern*wildcard_bytes])
         address_pattern = b"(%s)" % single_address_pattern

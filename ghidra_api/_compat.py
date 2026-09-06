@@ -1,3 +1,17 @@
+"""
+Small shims that let this package run under both Jython (Ghidra's built-in
+interpreter) and CPython (PyGhidra).
+"""
+
+try:
+    # In Jython a Java exception is not a Python Exception, so a plain
+    # `except Exception` silently fails to catch anything Ghidra throws.
+    # Under CPython/PyGhidra the import fails and Java errors arrive as
+    # ordinary Python exceptions.
+    from java.lang import Exception as JavaException
+    CAUGHT_ERRORS = (Exception, JavaException)
+except:  # noqa: E722 - must not itself use `except Exception`
+    CAUGHT_ERRORS = (Exception,)
 
 def resolve_program(program):
     if program is not None:
@@ -72,6 +86,8 @@ def run_command(program, cmd):
         success = cmd.applyTo(program)
         program.endTransaction(tx_id, success)
         return success
-    except Exception:
+    except CAUGHT_ERRORS:
+        # Ghidra commands throw Java exceptions; `except Exception` would not
+        # catch them under Jython and the transaction would be left open
         program.endTransaction(tx_id, False)
         raise
