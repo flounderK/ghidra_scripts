@@ -5,6 +5,8 @@ from ghidra.app.decompiler import DecompInterface
 from ghidra.util.task import ConsoleTaskMonitor
 from ghidra.program.model.pcode import PcodeOpAST
 from ghidra.app.decompiler.component import DecompilerUtils
+from .decomp_cache import (DecompCache, get_shared_cache,
+                           caching_enabled, DEFAULT_MAX_ENTRIES)
 import logging
 
 log = logging.getLogger(__file__)
@@ -12,11 +14,26 @@ log.addHandler(logging.StreamHandler())
 log.setLevel(logging.WARNING)
 
 
-class DecompUtils:
+class DecompUtils(object):
     """
     Utilities on top of the existing decompiler utils
+
+    Decompiler results are cached and reused until something they were built
+    from changes -- see decomp_cache.DecompCache.
+
+    The cache is shared per program, so instances made by different scripts
+    reuse each other's work and only one program listener is installed. Pass
+    use_shared_cache=False for an isolated cache, or use_cache=False to
+    decompile fresh every time.
+
+    Caching can be turned off three ways:
+      * per instance -- DecompUtils(use_cache=False)
+      * per call     -- any accessor takes fresh=True to force a decompile
+      * process-wide -- decomp_cache.set_caching_enabled(False)
     """
-    def __init__(self, program=None, monitor_inst=None, decomp_timeout=60):
+    def __init__(self, program=None, monitor_inst=None, decomp_timeout=60,
+                 use_cache=True, max_cache_entries=DEFAULT_MAX_ENTRIES,
+                 use_shared_cache=True):
         if program is not None:
             self.program = program
         else:
@@ -32,6 +49,20 @@ class DecompUtils:
         self._ifc.setOptions(self._decomp_options)
         self.fm = self.program.getFunctionManager()
         self.decomp_timeout = decomp_timeout
+        # openProgram is expensive, so it is done once per opened program
+        # rather than on every decompilation
+        self._opened_program = None
+        # only a cache this instance created is torn down by close(); a shared
+        # one belongs to the program and may still be in use elsewhere
+        self._owns_cache = False
+        if not use_cache:
+            self._cache = None
+        elif use_shared_cache:
+            self._cache = get_shared_cache(self.program,
+                                           max_entries=max_cache_entries)
+        else:
+            self._cache = DecompCache(self.program, max_entries=max_cache_entries)
+            self._owns_cache = True
 
     def get_funcs_by_name(self, name):
         """
@@ -39,23 +70,75 @@ class DecompUtils:
         """
         return [i for i in self.fm.getFunctions(1) if i.name == name]
 
-    def get_high_function(self, func, timeout=None):
+    def get_high_function(self, func, timeout=None, fresh=False):
         """
-        Get a HighFunction for a given function
+        Get a HighFunction for a given function. Pass fresh=True to decompile
+        again instead of using a cached result
         """
-        res = self.get_decompiler_result(func, timeout)
+        res = self.get_decompiler_result(func, timeout, fresh=fresh)
+        if res is None:
+            return None
         high_func = res.getHighFunction()
         return high_func
 
-    def get_decompiler_result(self, func, timeout=None):
+    def get_decompiler_result(self, func, timeout=None, fresh=False):
         """
-        Get decompiler results for a given function
+        Get decompiler results for a given function, from cache when the
+        function's dependencies are unchanged.
+
+        @fresh forces a new decompilation and replaces any cached entry --
+        for changes the cache cannot observe, such as a signature change to
+        a function only reached through an indirect call
         """
         if timeout is None:
             timeout = self.decomp_timeout
-        self._ifc.openProgram(func.getProgram())
-        res = self._ifc.decompileFunction(func, timeout, self._monitor)
-        return res
+        if self._cache is None or not caching_enabled():
+            return self._decompile(func, timeout)
+        if fresh:
+            self._cache.invalidate(func)
+
+        def decompile():
+            return self._decompile(func, timeout)
+
+        return self._cache.get(func, decompile)
+
+    def _decompile(self, func, timeout):
+        """
+        Run the decompiler, opening the program only when it changes
+        """
+        program = func.getProgram()
+        if self._opened_program is not program:
+            self._ifc.openProgram(program)
+            self._opened_program = program
+        return self._ifc.decompileFunction(func, timeout, self._monitor)
+
+    def invalidate_cache(self, func=None):
+        """
+        Drop @func from the decompilation cache, or the whole cache when
+        @func is None. Only needed for changes the cache cannot observe,
+        such as a signature change to a function reached only indirectly
+        """
+        if self._cache is not None:
+            self._cache.invalidate(func)
+
+    def cache_stats(self):
+        """
+        Hit/miss counters for the decompilation cache, or None when disabled
+        """
+        if self._cache is None or not caching_enabled():
+            return None
+        return self._cache.stats()
+
+    def close(self):
+        """
+        Stop using the cache. An isolated cache is detached from the program;
+        a shared one is left in place for other users, and is torn down when
+        its program closes or via decomp_cache.close_all_caches().
+        Safe to call more than once
+        """
+        if self._cache is not None and self._owns_cache:
+            self._cache.close()
+        self._cache = None
 
     def get_function_prototype(self, func, **kwargs):
         """
@@ -124,6 +207,9 @@ class DecompUtils:
         num_params = proto.getNumParams()
         if num_params == 0:
             return []
+        # the prototype lookup above already refreshed the entry, so the
+        # per-parameter lookups must not each force another decompilation
+        kwargs.pop("fresh", None)
         varnodes_lists = []
         for param_num in range(1, num_params+1):
             vns = self.get_varnodes_for_param(func, param_num, **kwargs)
@@ -217,6 +303,8 @@ def find_all_pcode_op_instances(opcodes, program=None, **kwargs):
         if func.isThunk():
             continue
         pcode_ops = du.get_pcode_for_function(func)
+        if pcode_ops is None:
+            continue
         matching_ops = [i for i in pcode_ops if i.opcode in opcodes]
         if not matching_ops:
             continue
