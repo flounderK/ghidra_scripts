@@ -1,10 +1,10 @@
 from __main__ import *
-from call_ref_utils import get_callsites_for_func_by_name
+from ghidra_api.call_ref_utils import get_callsites_for_func_by_name
 from collections import defaultdict
-from decomp_utils import DecompUtils
+from ghidra_api.decomp_utils import DecompUtils
 from ghidra.program.model.pcode import PcodeOpAST
 from ghidra.app.decompiler.component import DecompilerUtils
-from register_utils import getStackRegister
+from ghidra_api.register_utils import getStackRegister
 import logging
 
 log = logging.getLogger(__file__)

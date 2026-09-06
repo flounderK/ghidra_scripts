@@ -3,8 +3,8 @@ from ghidra.program.util import DefinedDataIterator
 import re
 from collections import defaultdict
 from ghidra.program.model.symbol import SymbolType, SourceType
-from call_ref_utils import get_callsites_for_func_by_name
-from decomp_utils import DecompUtils
+from ghidra_api.call_ref_utils import get_callsites_for_func_by_name
+from ghidra_api.decomp_utils import DecompUtils
 from ghidra.program.model.pcode import PcodeOpAST
 from ghidra.app.decompiler.component import DecompilerUtils
 

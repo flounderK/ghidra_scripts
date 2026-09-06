@@ -2,7 +2,7 @@
 #
 
 from __main__ import *
-from decomp_utils import find_all_pcode_op_instances
+from ghidra_api.decomp_utils import find_all_pcode_op_instances
 from ghidra.program.model.pcode import PcodeOpAST
 
 funcs_with_ptradd = find_all_pcode_op_instances(PcodeOpAST.PTRADD)

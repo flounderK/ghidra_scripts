@@ -1,7 +1,7 @@
 #@runtime Jython
 from __main__ import *
 from ghidra.program.model.data import EnumDataType
-from datatype_utils import get_all_defined_datatype_instances
+from ghidra_api.datatype_utils import get_all_defined_datatype_instances
 import struct
 
 pack_lookup = {

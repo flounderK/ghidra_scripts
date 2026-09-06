@@ -1,6 +1,6 @@
 #@runtime Jython
 from __main__ import *
-from decomp_utils import DecompUtils
+from ghidra_api.decomp_utils import DecompUtils
 import json
 from collections import defaultdict
 from ghidra.program.model.block import BasicBlockModel

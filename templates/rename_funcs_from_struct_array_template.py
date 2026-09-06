@@ -1,5 +1,5 @@
 from __main__ import *
-from datatype_utils import get_all_defined_datatype_instances
+from ghidra_api.datatype_utils import get_all_defined_datatype_instances
 from ghidra.program.model.symbol import SourceType
 import struct
 

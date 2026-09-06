@@ -14,7 +14,7 @@ from ghidra.program.database.symbol import CodeSymbol
 from ghidra.program.database.code import DataDB
 from ghidra.program.database.code import InstructionDB
 from ghidra.program.model.data import StructureDataType
-from datatype_utils import getVoidPointerDatatype, applyDataTypeAtAddress
+from ghidra_api.datatype_utils import getVoidPointerDatatype, applyDataTypeAtAddress
 import struct
 import logging 
 

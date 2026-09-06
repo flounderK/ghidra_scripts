@@ -8,7 +8,7 @@ from ghidra.program.model.block.graph import CodeBlockEdge, CodeBlockVertex
 from ghidra.graph import GDirectedGraph, GraphFactory, GraphAlgorithms
 import ghidra.graph.algo
 from ghidra.program.model.address import AddressSet
-from decomp_utils import DecompUtils
+from .decomp_utils import DecompUtils
 import java
 
 

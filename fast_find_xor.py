@@ -2,7 +2,7 @@
 from __main__ import *
 from ghidra.program.model.pcode import PcodeOpAST
 from collections import defaultdict
-from decomp_utils import DecompUtils
+from ghidra_api.decomp_utils import DecompUtils
 import logging
 
 

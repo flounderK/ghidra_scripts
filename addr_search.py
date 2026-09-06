@@ -4,7 +4,7 @@
 #@category Utils
 
 from ghidra.program.model.symbol import SourceType
-from pointer_utils import createPointerUtils
+from ghidra_api.pointer_utils import createPointerUtils
 import logging
 
 from __main__ import *

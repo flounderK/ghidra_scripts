@@ -11,7 +11,7 @@
 # control flow ordering.
 
 from __main__ import *
-from decomp_utils import DecompUtils
+from ghidra_api.decomp_utils import DecompUtils
 from ghidra.program.model.pcode import PcodeOpAST
 from ghidra.app.decompiler.component import DecompilerUtils
 import logging

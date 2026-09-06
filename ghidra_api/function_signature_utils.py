@@ -19,7 +19,7 @@ from ghidra.program.database.data import DataTypeUtilities
 from ghidra.program.model.data import DefaultDataType
 from ghidra.program.model.data import MetaDataType
 
-from datatype_utils import getUndefinedRegisterSizeDatatype
+from .datatype_utils import getUndefinedRegisterSizeDatatype
 
 
 def getDataTypeForParam(func, param_num):

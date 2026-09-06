@@ -1,5 +1,5 @@
 from __main__ import *
-from decomp_utils import DecompUtils
+from ghidra_api.decomp_utils import DecompUtils
 
 du = DecompUtils()
 

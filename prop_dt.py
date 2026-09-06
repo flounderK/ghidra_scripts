@@ -3,7 +3,7 @@
 from __main__ import *
 
 from type_propagator import prop_datatype_from_func_param
-from decomp_utils import DecompUtils
+from ghidra_api.decomp_utils import DecompUtils
 
 
 selection = currentSelection

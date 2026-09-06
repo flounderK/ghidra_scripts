@@ -16,7 +16,7 @@ from ghidra.program.util import ContextEvaluator
 from ghidra.program.util import SymbolicPropogator
 from ghidra.program.util import VarnodeContext
 
-from java_reflection_utils import get_accessible_java_field
+from ghidra_api.java_reflection_utils import get_accessible_java_field
 
 
 

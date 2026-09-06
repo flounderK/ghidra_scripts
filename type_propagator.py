@@ -6,10 +6,10 @@ from ghidra.program.model.data import MetaDataType
 from ghidra.program.model.data import DefaultDataType
 
 import logging
-from decomp_utils import DecompUtils
-from function_signature_utils import set_param_datatype, set_num_params, getDataTypeForParam
-from datatype_utils import getVoidPointerDatatype, areBaseDataTypesEquallyUnique, getUndefinedRegisterSizeDatatype
-from register_utils import getRegToParamMapForFunc
+from ghidra_api.decomp_utils import DecompUtils
+from ghidra_api.function_signature_utils import set_param_datatype, set_num_params, getDataTypeForParam
+from ghidra_api.datatype_utils import getVoidPointerDatatype, areBaseDataTypesEquallyUnique, getUndefinedRegisterSizeDatatype
+from ghidra_api.register_utils import getRegToParamMapForFunc
 
 log = logging.getLogger(__file__)
 log.addHandler(logging.StreamHandler())

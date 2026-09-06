@@ -1,6 +1,6 @@
 # analyze constants in the program to find "hot spots" where there are many references near one another
 from __main__ import *
-from decomp_utils import DecompUtils
+from ghidra_api.decomp_utils import DecompUtils
 from ghidra.program.model.pcode import PcodeOpAST
 from ghidra.app.decompiler.component import DecompilerUtils
 from ghidra.program.model.symbol import FlowType, RefType

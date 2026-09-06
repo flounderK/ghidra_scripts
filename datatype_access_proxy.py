@@ -1,5 +1,5 @@
 from __main__ import *
-from datatype_utils import applyDataTypeAtAddress
+from ghidra_api.datatype_utils import applyDataTypeAtAddress
 
 
 def gen_name_to_field_map(dt):
