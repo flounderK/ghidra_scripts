@@ -2,3 +2,6 @@
 *.swp
 *.o
 *.so
+__pycache__/
+*.pyc
+tests/test_output.log
