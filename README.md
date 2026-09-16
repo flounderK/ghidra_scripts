@@ -102,16 +102,52 @@ Identify already defined data in memory that can be represented as a pointer to 
 
 This is very useful for architectures like arm that frequently utilize a "constant pool" for each function because ghidra will not automatically change the types of pointers in constant pools.
 
-## A few notes about weirdness in scripts
-I try to write just about everything in `python` for these because it is quicker for me to write, but because ghidra uses `Jython` certain oddities are needed to improve the usability or functionality for things that would not necessarily be needed if I wrote these in `java`.
+## Running under Jython or PyGhidra
+Everything here runs under both of Ghidra's python runtimes: `Jython` (bundled through Ghidra 11.x, an installable extension from 12 on) and `PyGhidra`, which is real CPython talking to the JVM through `JPype`. No script carries a `#@runtime` tag, so Ghidra picks whichever the install has.
 
-### The wierd import line
-I use the following line in almost all of the scripts, despite it being horrible practice for python:
+The test suites take `GHIDRA_DIR` and `GHIDRA_RUNTIME` so both can be exercised:
+
+```sh
+tests/run_api_tests.sh                                            # auto-detect
+GHIDRA_RUNTIME=pyghidra tests/run_api_tests.sh
+GHIDRA_DIR=/opt/ghidra_11.4.2_PUBLIC GHIDRA_RUNTIME=jython tests/run_api_tests.sh
+```
+
+`analyzeHeadless` cannot start PyGhidra itself, so `tests/ghidra_headless.sh` goes through `pyghidra.ghidra_launch` for that runtime and calls `analyzeHeadless` directly for Jython.
+
+## A few notes about weirdness in scripts
+I try to write just about everything in `python` for these because it is quicker for me to write, but the two runtimes differ in enough places that a few oddities are needed that would not be if I wrote these in `java`.
+
+### The wierd import line, and where it stopped working
+Scripts still start with this, despite it being horrible practice for python:
 ```python
 from __main__ import *
 ```
 
-This is a hack to make script development easier, as it allows you to do something like `from call_ref_utils import *` from the ghidra python interpreter and have the import work correctly, even if you utilize things that are default imports from `ghidra.program.flatapi.FlatProgramAPI`, like the `currentProgram` variable. I might change this in the future to make the scripts less cursed.
+It is a hack to make script development easier: it pulls in the things `ghidra.program.flatapi.FlatProgramAPI` hands a script, like `currentProgram`, so a script can use them without ceremony.
+
+Under Jython the running script *is* the `__main__` module, so this works from a script and from anything the script imports. **Under PyGhidra only the first half holds.** PyGhidra execs a script with a globals mapping that proxies a live `GhidraScript`, so bare names still resolve inside the script itself, but that mapping is never registered as `sys.modules['__main__']` -- `__main__` is the launcher. An imported module sees none of it, and every bare `currentProgram` or `getFunctionContaining` is a `NameError`.
+
+So the rule is: **scripts may use the flat API directly, modules may not.** Everything under `ghidra_api/` goes through `_compat` instead:
+
+```python
+from ._compat import get_function_containing, resolve_program
+
+def something(addr, program=None):
+    program = resolve_program(program)
+    func = get_function_containing(program, addr)
+```
+
+`_compat.flat_api()` is what makes that work on both: under Jython it reads `__main__`, and under PyGhidra it walks out to the script's own frame, whose globals carry `__this__` -- the `GhidraScript` -- and reads the API off that. `set_script_context()` pins it explicitly for an embedded interpreter or a harness where neither route applies.
+
+### Other places the two runtimes disagree
+`_compat` also covers these, and the test suite checks each on both:
+
+* **Implementing a java interface.** Jython does it by subclassing; JPype refuses ("Java classes cannot be extended in Python") and wants `@JImplements` with `@JOverride` on each method. `implements()`, `java_interface_base()` and `override()` spell one declaration that works either way.
+* **Java object identity.** Jython hands back one stable proxy per java object, so `is` answers "same object". JPype may build a fresh proxy per call, so `is` can be false for a single java object -- which silently turns an identity guard into "always different". `same_java_object()` compares through java's `equals()` instead. This one is worth watching for: it fails quietly rather than raising.
+* **Reflection handles.** Jython hangs the `java.lang.Class` methods off the type object; JPype keeps them behind `class_`. `java_class_of()` accepts either.
+* **Byte arrays.** `jarray` under Jython, `jpype.JArray` under PyGhidra, and java bytes are signed in both. `to_java_byte_array()`, `from_java_byte_array()` and `new_java_byte_array()` handle the conversion.
+* **Catching java exceptions.** A java exception is not a python `Exception` under Jython, so a bare `except Exception` catches nothing. `CAUGHT_ERRORS` is the tuple to catch.
 
 ### Using Java's Reflection API
 Inheriting from `java` classes in python works, but it doesn't work for everything. As I understand it, inheriting from a class in `java` would allow you to access `protected` methods, constructors, and fields. Inheriting from a `java` class in `Jython` does not immediately give you access to `protected` fields, which makes `Overriding` `protected` methods inacessible, despite it being relatively acceptable behavior for a `java` class. To work around this (and to avoid having to write code in `java`), I have utilized java's reflection API to enable this behavior. I try to limit it, but I also don't intend to rewrite java classes from ghidra in python to adjust their behavior if I don't have to.

@@ -1,7 +1,6 @@
-#@runtime Jython
 """Tests for ghidra_api.graph_utils."""
 
-from __main__ import *
+from ghidra_api._compat import resolve_program
 from ghidra.program.model.block import BasicBlockModel
 
 from ghidra_api import graph_utils as gu
@@ -10,7 +9,7 @@ from ghidra_test_support import get_function
 
 class Context(object):
     def __init__(self):
-        self.program = currentProgram
+        self.program = resolve_program(None)
         self.model = BasicBlockModel(self.program)
         self.helper = gu.GraphBuildHelper(self.model, program=self.program)
         self.looping = get_function(self.program, "sum_inner_array")

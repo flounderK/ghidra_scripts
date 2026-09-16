@@ -1,4 +1,3 @@
-#@runtime Jython
 """
 Dependency-tracking cache for decompiler results.
 
@@ -35,10 +34,11 @@ be resolved statically, so a signature change to such a callee will not
 invalidate its callers. Call invalidate() explicitly in that case.
 """
 
-from __main__ import *
 from ghidra.framework.model import DomainObjectListener
 from ghidra.framework.model import DomainObjectClosedListener
-from ._compat import get_bytes, CAUGHT_ERRORS
+from ._compat import (CAUGHT_ERRORS, get_bytes, implements,
+                      java_interface_base, override,
+                      same_java_object)
 import binascii
 import logging
 import threading
@@ -307,12 +307,14 @@ class CacheEntry(object):
         self.body = func.getBody()
 
 
-class ProgramChangeListener(DomainObjectListener):
+@implements(DomainObjectListener)
+class ProgramChangeListener(java_interface_base(DomainObjectListener)):
     """Translates program change events into cache invalidations."""
 
     def __init__(self, cache):
         self._cache = cache
 
+    @override
     def domainObjectChanged(self, event):
         try:
             self._cache.handle_event(event)
@@ -598,7 +600,7 @@ class DecompCache(object):
         the decompiler cannot handle is not retried on every access. Use
         fresh=True on the DecompUtils accessor to force another attempt.
         """
-        if func.getProgram() is not self._program:
+        if not same_java_object(func.getProgram(), self._program):
             return decompile()
 
         self._drain_events()
@@ -676,9 +678,11 @@ _SHARED_CACHES = {}
 _CLOSE_LISTENERS = {}
 
 
-class ProgramClosedListener(DomainObjectClosedListener):
+@implements(DomainObjectClosedListener)
+class ProgramClosedListener(java_interface_base(DomainObjectClosedListener)):
     """Drops a program's shared cache when the program is closed."""
 
+    @override
     def domainObjectClosed(self, domain_object):
         try:
             close_cache(domain_object)

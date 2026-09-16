@@ -1,10 +1,9 @@
 
-from __main__ import *
+from ._compat import resolve_program
 
 
 def getStackRegister(program=None):
-    if program is None:
-        program = currentProgram
+    program = resolve_program(program)
     return program.getCompilerSpec().getStackPointer()
 
 
@@ -32,8 +31,7 @@ def getGeneralPurposeRegsToParamMapForCallingConvention(cc, program=None):
     Create a map of general purpose registers to parameter number for
     the provided calling convention and program
     """
-    if program is None:
-        program = currentProgram
+    program = resolve_program(program)
     if cc is None:
         cc = program.getCompilerSpec().getDefaultCallingConvention()
     inp_storage_locs = cc.getPotentialInputRegisterStorage(program)

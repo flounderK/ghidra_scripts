@@ -1,7 +1,6 @@
-#@runtime Jython
 """Tests for ghidra_api.register_utils."""
 
-from __main__ import *
+from ghidra_api._compat import resolve_program
 
 from ghidra_api import register_utils as ru
 from ghidra_test_support import get_function
@@ -9,7 +8,7 @@ from ghidra_test_support import get_function
 
 class Context(object):
     def __init__(self):
-        self.program = currentProgram
+        self.program = resolve_program(None)
         self.main = get_function(self.program, "main")
         self.takes_many = get_function(self.program, "takes_many")
 

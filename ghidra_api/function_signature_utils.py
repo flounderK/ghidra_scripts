@@ -1,4 +1,4 @@
-from __main__ import *
+from ._compat import resolve_program, run_command
 
 from ghidra.app.cmd.function import ApplyFunctionSignatureCmd
 from ghidra.program.model.data import Category
@@ -39,8 +39,7 @@ def set_num_params(func, num_params, widen_undef_params=True, widen_undef_return
     """
     Set the number of parameters for a function. 
     """
-    if program is None:
-        program = currentProgram
+    program = resolve_program(program)
 
     if default_datatype is None:
         default_datatype = getUndefinedRegisterSizeDatatype(program)
@@ -75,7 +74,7 @@ def set_num_params(func, num_params, widen_undef_params=True, widen_undef_return
             existing_sig.setReturnType(default_datatype)
     # FunctionSignature newSignature = func_def
     cmd = ApplyFunctionSignatureCmd(func.getEntryPoint(), existing_sig, SourceType.USER_DEFINED)
-    return runCommand(cmd)
+    return run_command(program, cmd)
 
 
 def set_param_datatype(func, param_num, datatype, program=None):
@@ -86,8 +85,7 @@ def set_param_datatype(func, param_num, datatype, program=None):
     param_ind = param_num-1
     if param_ind < 0:
         raise Exception("parameter number is too low")
-    if program is None:
-        program = currentProgram
+    program = resolve_program(program)
     default_datatype = getUndefinedRegisterSizeDatatype(program)
     existing_sig = func.getSignature()
     existing_args = list(existing_sig.getArguments())
@@ -111,4 +109,4 @@ def set_param_datatype(func, param_num, datatype, program=None):
 
     existing_sig.setArguments(params)
     cmd = ApplyFunctionSignatureCmd(func.getEntryPoint(), existing_sig, SourceType.USER_DEFINED)
-    return runCommand(cmd)
+    return run_command(program, cmd)

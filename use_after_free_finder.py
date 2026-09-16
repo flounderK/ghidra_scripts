@@ -1,4 +1,3 @@
-#@runtime Jython
 # Use-After-Free vulnerability finder for Ghidra
 # Detection approach modeled after LLVM/Clang's MallocChecker static analyzer.
 #
@@ -10,7 +9,7 @@
 # (forward/backward slicing) to track pointer aliases and
 # control flow ordering.
 
-from __main__ import *
+from ghidra_api._compat import resolve_program
 from ghidra_api.decomp_utils import DecompUtils
 from ghidra.program.model.pcode import PcodeOpAST
 from ghidra.app.decompiler.component import DecompilerUtils
@@ -108,9 +107,8 @@ class UseAfterFreeFinder(object):
 
     def __init__(self, program=None, alloc_funcs=None, free_funcs=None,
                  realloc_funcs=None):
-        if program is None:
-            program = currentProgram
-        self.program = program
+        self.program = resolve_program(program)
+        program = self.program
         self.du = DecompUtils(program)
         self.alloc_funcs = alloc_funcs if alloc_funcs is not None \
             else ALLOC_FUNCS

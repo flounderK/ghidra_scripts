@@ -8,7 +8,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
-GHIDRA_DIR="/opt/ghidra_11.4.2_PUBLIC"
+# shellcheck source=ghidra_headless.sh
+. "$SCRIPT_DIR/ghidra_headless.sh"
 PROJECT_DIR="/tmp/ghidra_uaf_test"
 PROJECT_NAME="UAFTest"
 TEST_BINARY="$SCRIPT_DIR/uaf_test_binary"
@@ -23,7 +24,7 @@ rm -rf "$PROJECT_DIR"
 mkdir -p "$PROJECT_DIR"
 
 echo "[*] Running Ghidra headless analysis ..."
-"$GHIDRA_DIR/support/analyzeHeadless" \
+ghidra_headless \
     "$PROJECT_DIR" "$PROJECT_NAME" \
     -import "$TEST_BINARY" \
     -postScript test_uaf_finder.py \

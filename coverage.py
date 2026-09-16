@@ -1,4 +1,3 @@
-#@runtime Jython
 #@description coverage measurement for an estimation of reversing completeness
 from __main__ import *
 import json

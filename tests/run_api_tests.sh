@@ -3,10 +3,13 @@
 # headless analyzer, in a single session.
 #
 # Usage: ./run_api_tests.sh
+#        GHIDRA_RUNTIME=pyghidra ./run_api_tests.sh
+#        GHIDRA_DIR=/opt/ghidra_11.2_PUBLIC ./run_api_tests.sh
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-GHIDRA_DIR="/opt/ghidra_11.4.2_PUBLIC"
+# shellcheck source=ghidra_headless.sh
+. "$SCRIPT_DIR/ghidra_headless.sh"
 PROJECT_DIR="/tmp/ghidra_api_test"
 PROJECT_NAME="GhidraApiTest"
 TEST_BINARY="$SCRIPT_DIR/api_test_binary"
@@ -18,7 +21,7 @@ gcc -O0 -g -fno-builtin -o "$TEST_BINARY" \
 
 rm -rf "$PROJECT_DIR"; mkdir -p "$PROJECT_DIR"
 echo "[*] Running ghidra_api suite ..."
-"$GHIDRA_DIR/support/analyzeHeadless" \
+ghidra_headless \
     "$PROJECT_DIR" "$PROJECT_NAME" \
     -import "$TEST_BINARY" \
     -postScript test_ghidra_api.py \

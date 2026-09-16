@@ -1,4 +1,3 @@
-#@runtime Jython
 # Test harness for use_after_free_finder.py
 # Run inside Ghidra (headless or interactive) against a binary
 # compiled from uaf_test_cases.c.

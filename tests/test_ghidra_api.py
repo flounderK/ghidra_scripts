@@ -1,4 +1,3 @@
-#@runtime Jython
 # Entry point for the ghidra_api test suite.
 # Runs every module in tests/api_tests within a single Ghidra session --
 # headless startup and auto-analysis dominate the runtime, so running each

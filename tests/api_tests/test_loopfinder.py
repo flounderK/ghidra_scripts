@@ -1,7 +1,6 @@
-#@runtime Jython
 """Tests for ghidra_api.loopfinder against the fixture's nested loops."""
 
-from __main__ import *
+from ghidra_api._compat import resolve_monitor, resolve_program
 from ghidra.program.model.block import BasicBlockModel
 
 from ghidra_api import loopfinder as lf
@@ -15,7 +14,7 @@ def instruction_addresses(program, func):
 
 class Context(object):
     def __init__(self):
-        self.program = currentProgram
+        self.program = resolve_program(None)
         self.model = BasicBlockModel(self.program)
         self.looping = get_function(self.program, "sum_inner_array")
         self.leaf = get_function(self.program, "leaf")
@@ -48,7 +47,7 @@ def test_is_addr_in_loop_on_straight_line_code(t, ctx):
 
 
 def test_block_loops_to_self(t, ctx):
-    blocks = list(ctx.model.getCodeBlocksContaining(ctx.looping.getBody(), monitor))
+    blocks = list(ctx.model.getCodeBlocksContaining(ctx.looping.getBody(), resolve_monitor(None)))
     t.check("the looping function has code blocks", len(blocks) > 0)
     results = [lf.block_loops_to_self(b) for b in blocks]
     t.check("block_loops_to_self returns booleans",
@@ -56,7 +55,7 @@ def test_block_loops_to_self(t, ctx):
 
 
 def test_get_code_block_destinations(t, ctx):
-    blocks = list(ctx.model.getCodeBlocksContaining(ctx.looping.getBody(), monitor))
+    blocks = list(ctx.model.getCodeBlocksContaining(ctx.looping.getBody(), resolve_monitor(None)))
     total = 0
     for block in blocks:
         total += len(list(lf.getCodeBlockDestinations(block)))

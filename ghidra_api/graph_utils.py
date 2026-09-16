@@ -1,4 +1,5 @@
-from __main__ import *
+from ._compat import (get_memory_blocks, resolve_monitor,
+                      resolve_program)
 from ghidra.program.model.block import BasicBlockModel, CodeBlockIterator, SimpleBlockModel
 from ghidra.program.model.block import IsolatedEntrySubModel, MultEntSubModel, OverlapCodeSubModel, PartitionCodeSubModel
 from ghidra.program.model.symbol import FlowType
@@ -10,9 +11,10 @@ from ghidra.program.model.address import AddressSet
 import java
 
 
-def create_full_mem_addr_set():
+def create_full_mem_addr_set(program=None):
+    program = resolve_program(program)
     existing_mem_addr_set = AddressSet()
-    for m_block in getMemoryBlocks():
+    for m_block in get_memory_blocks(program):
         existing_mem_addr_set.add(m_block.getAddressRange())
     return existing_mem_addr_set
 
@@ -22,15 +24,13 @@ class GraphBuildHelper(object):
     Based on AbstractModularizationCmd.java
     """
     def __init__(self, model, program=None, monitor_inst=None):
-        if program is None:
-            program = currentProgram
-        if monitor_inst is None:
-            monitor_inst = monitor
-        self.monitor = monitor_inst
+        self.program = resolve_program(program)
+        self.monitor = resolve_monitor(monitor_inst)
         self.bbm = model
 
     def createCFG(self):
-        return self.createCFGForAddressSet(create_full_mem_addr_set())
+        return self.createCFGForAddressSet(
+            create_full_mem_addr_set(self.program))
 
     def createCFGForFunc(self, func):
         """
@@ -137,8 +137,10 @@ def reachable_vertices(g, vert):
     return GraphAlgorithms.getDescendants(g, [vert])
 
 
-def test():
-    bbm_graph = GraphBuildHelper(BasicBlockModel(currentProgram)).createCFG()
-    bbm_dom = GraphAlgorithms.findDominanceTree(bbm_graph, monitor)
-    mult_ent_graph = GraphBuildHelper(MultEntSubModel(currentProgram)).createCFG()
-    mult_ent_dom = GraphAlgorithms.findDominanceTree(mult_ent_graph, monitor)
+def test(program=None, monitor_inst=None):
+    program = resolve_program(program)
+    monitor_inst = resolve_monitor(monitor_inst)
+    bbm_graph = GraphBuildHelper(BasicBlockModel(program), program).createCFG()
+    bbm_dom = GraphAlgorithms.findDominanceTree(bbm_graph, monitor_inst)
+    mult_ent_graph = GraphBuildHelper(MultEntSubModel(program), program).createCFG()
+    mult_ent_dom = GraphAlgorithms.findDominanceTree(mult_ent_graph, monitor_inst)

@@ -1,7 +1,6 @@
-#@runtime Jython
 """Tests for ghidra_api.datatype_utils against the api_test_cases fixture."""
 
-from __main__ import *
+from ghidra_api._compat import resolve_program
 from ghidra.program.model.data import Pointer, PointerDataType
 
 from ghidra_api import datatype_utils as dtu
@@ -11,9 +10,9 @@ from ghidra_test_support import find_type, global_data
 
 class Context(object):
     def __init__(self):
-        self.program = currentProgram
-        self.dtm = currentProgram.getDataTypeManager()
-        self.listing = currentProgram.getListing()
+        self.program = resolve_program(None)
+        self.dtm = resolve_program(None).getDataTypeManager()
+        self.listing = resolve_program(None).getListing()
         self.inner = find_type(self.dtm, "Inner")
         self.middle = find_type(self.dtm, "Middle")
         self.outer = find_type(self.dtm, "Outer")

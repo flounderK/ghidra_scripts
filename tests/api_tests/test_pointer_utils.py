@@ -1,9 +1,8 @@
-#@runtime Jython
 """Tests for ghidra_api.pointer_utils."""
 
 import struct
 
-from __main__ import *
+from ghidra_api._compat import resolve_program
 
 from ghidra_api import pointer_utils as pu
 from ghidra_test_support import global_address
@@ -11,7 +10,7 @@ from ghidra_test_support import global_address
 
 class Context(object):
     def __init__(self):
-        self.program = currentProgram
+        self.program = resolve_program(None)
         self.utils = pu.createPointerUtils(program=self.program)
         self.g_inner = global_address(self.program, "g_inner")
         self.static_pointer = global_address(self.program, "g_static_inner_pointer")

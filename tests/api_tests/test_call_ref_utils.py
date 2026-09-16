@@ -1,11 +1,10 @@
-#@runtime Jython
 """Tests for ghidra_api.call_ref_utils against the api_test_cases fixture.
 
 The fixture provides a deliberate call chain -- top_caller -> middle_caller
 -> leaf -- plus a self-recursive countdown() and an indirect call.
 """
 
-from __main__ import *
+from ghidra_api._compat import resolve_program
 
 from ghidra_api import call_ref_utils as cru
 from ghidra_test_support import get_function
@@ -13,7 +12,7 @@ from ghidra_test_support import get_function
 
 class Context(object):
     def __init__(self):
-        self.program = currentProgram
+        self.program = resolve_program(None)
         self.leaf = get_function(self.program, "leaf")
         self.middle = get_function(self.program, "middle_caller")
         self.top = get_function(self.program, "top_caller")

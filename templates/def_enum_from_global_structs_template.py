@@ -1,4 +1,3 @@
-#@runtime Jython
 from __main__ import *
 from ghidra.program.model.data import EnumDataType
 from ghidra_api.datatype_utils import get_all_defined_datatype_instances

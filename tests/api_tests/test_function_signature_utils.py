@@ -1,11 +1,10 @@
-#@runtime Jython
 """Tests for ghidra_api.function_signature_utils.
 
 Mutating checks each use their own fixture function so they cannot disturb
 the read-only checks or each other.
 """
 
-from __main__ import *
+from ghidra_api._compat import resolve_program
 
 from ghidra_api import function_signature_utils as fsu
 from ghidra_api import datatype_utils as dtu
@@ -14,7 +13,7 @@ from ghidra_test_support import get_function, find_type
 
 class Context(object):
     def __init__(self):
-        self.program = currentProgram
+        self.program = resolve_program(None)
         self.dtm = self.program.getDataTypeManager()
         self.takes_many = get_function(self.program, "takes_many")
         self.takes_nothing = get_function(self.program, "takes_nothing")

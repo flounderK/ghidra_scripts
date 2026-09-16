@@ -10,8 +10,9 @@ from ghidra.program.model.address import GenericAddress, Address
 import string
 import re
 import struct
-# makes it easier for dev and testing
-from __main__ import *
+
+from ._compat import (from_java_byte_array, get_bytes, get_memory_blocks,
+                      resolve_program)
 
 
 def hex_escape_bytes(raw):
@@ -34,16 +35,17 @@ def compile_byte_rexp_pattern(pattern):
     return re.compile(pattern, re.DOTALL | re.MULTILINE)
 
 
-def get_memory_bounds(excluded_memory_block_names=["tdb"]):
+def get_memory_bounds(excluded_memory_block_names=("tdb",), program=None):
     """
     Try to identify the bounds of memory that is currently mapped in.
     Some standard memory blocks (like `tdb` for microsoft binaries)
     are mapped in at ridiculous addresses (like 0xff00000000000000).
     If a memory block is mapped into this program
     """
+    program = resolve_program(program)
     minimum_addr = 0xffffffffffffffff
     maximum_addr = 0
-    memory_blocks = list(getMemoryBlocks())
+    memory_blocks = get_memory_blocks(program)
     for m_block in memory_blocks:
         # tdb is placed at a very large address that is well outside
         # of the loaded range for most executables
@@ -58,7 +60,7 @@ def get_memory_bounds(excluded_memory_block_names=["tdb"]):
     return minimum_addr, maximum_addr
 
 
-def search_memory_for_rexp(rexp, save_match_objects=True):
+def search_memory_for_rexp(rexp, save_match_objects=True, program=None):
     """
     Given a regular expression, search through all of the program's
     memory blocks for it and return a list of addresses where it was found,
@@ -66,7 +68,8 @@ def search_memory_for_rexp(rexp, save_match_objects=True):
     False if you are searching for exceptionally large objects and
     don't want to keep the matches around
     """
-    memory_blocks = list(getMemoryBlocks())
+    program = resolve_program(program)
+    memory_blocks = get_memory_blocks(program)
     search_memory_blocks = memory_blocks
     # TODO: maybe implement filters for which blocks get searched
     # filter out which memory blocks should actually be searched
@@ -82,7 +85,10 @@ def search_memory_for_rexp(rexp, save_match_objects=True):
             continue
         region_start = m_block.getStart()
         region_start_int = region_start.getOffset()
-        search_bytes = getBytes(region_start, m_block.getSize())
+        # re needs a real byte string: a Java byte[] is not one under
+        # either runtime, and its bytes are signed besides.
+        search_bytes = bytes(from_java_byte_array(
+            get_bytes(program, region_start, m_block.getSize())))
         iter_gen = re.finditer(rexp, search_bytes)
         match_count = 0
         # hacky loop over matches so that the recursion limit can be caught
@@ -104,7 +110,8 @@ def search_memory_for_rexp(rexp, save_match_objects=True):
     return all_match_addrs, all_match_objects
 
 
-def batch_pattern_memory_search(patterns, batchsize=100, save_match_objects=True):
+def batch_pattern_memory_search(patterns, batchsize=100,
+                                save_match_objects=True, program=None):
     """
     Works similar to search_memory_for_rexp, but supports running a list of patterns in batches
     so that python doesn't have to run a 500,000 character regular expression.
@@ -118,14 +125,16 @@ def batch_pattern_memory_search(patterns, batchsize=100, save_match_objects=True
     for pattern_batch in batch(patterns, batchsize):
         joined_pattern = b'(%s)' % b'|'.join(pattern_batch)
         rexp = compile_byte_rexp_pattern(joined_pattern)
-        match_addrs, match_obj = search_memory_for_rexp(rexp, save_match_objects=save_match_objects)
+        match_addrs, match_obj = search_memory_for_rexp(
+            rexp, save_match_objects=save_match_objects, program=program)
         all_match_addrs.extend(match_addrs)
         all_match_objects.extend(match_obj)
     return all_match_addrs, all_match_objects
 
 
 class PointerUtils:
-    def __init__(self, ptr_size=8, endian="little"):
+    def __init__(self, ptr_size=8, endian="little", program=None):
+        self.program = program
         self.ptr_size = ptr_size
         if endian.lower() in ["big", "msb", "be"]:
             self.endian = "big"
@@ -228,13 +237,13 @@ class PointerUtils:
         """
         pointer_pattern = self.gen_pattern_for_pointer(pointer)
         address_rexp = compile_byte_rexp_pattern(pointer_pattern)
-        match_addrs, _ = search_memory_for_rexp(address_rexp)
+        match_addrs, _ = search_memory_for_rexp(address_rexp,
+                                                program=self.program)
         return match_addrs
 
 
 def createPointerUtils(program=None, ptr_size=None, endian=None):
-    if program is None:
-        program = currentProgram
+    program = resolve_program(program)
     if ptr_size is None:
         ptr_size = program.getDefaultPointerSize()
     if endian is None:
@@ -243,5 +252,5 @@ def createPointerUtils(program=None, ptr_size=None, endian=None):
             endian = "big"
         else:
             endian = "little"
-    pu = PointerUtils(ptr_size, endian)
+    pu = PointerUtils(ptr_size, endian, program=program)
     return pu

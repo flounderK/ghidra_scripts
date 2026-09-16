@@ -1,5 +1,6 @@
 
-from __main__ import *
+from ._compat import (get_function_containing, resolve_monitor,
+                      resolve_program)
 from ghidra.program.model.block import BasicBlockModel, CodeBlockIterator
 from ghidra.program.model.symbol import FlowType
 import ghidra.util.exception.CancelledException
@@ -16,8 +17,7 @@ def block_loops_to_self(block, monitor_inst=None):
     """
     Check if a block jumps back to it self
     """
-    if monitor_inst is None:
-        monitor_inst = monitor
+    monitor_inst = resolve_monitor(monitor_inst)
     block_iter = block.getDestinations(monitor_inst)
     while block_iter.hasNext():
         if monitor_inst.isCancelled():
@@ -40,10 +40,8 @@ def is_addr_in_loop(addr, program=None, monitor_inst=None):
     Check if an address is in a basic loop within the current function.
     Untested
     """
-    if program is None:
-        program = currentProgram
-    if monitor_inst is None:
-        monitor_inst = monitor
+    program = resolve_program(program)
+    monitor_inst = resolve_monitor(monitor_inst)
     bbm = BasicBlockModel(program)
     start_blocks = list(bbm.getCodeBlocksContaining(addr, monitor_inst))
     # leave early if any of the first blocks just jump to themselves
@@ -119,8 +117,7 @@ def getCodeBlockDestinations(block, monitor_inst=None):
     """
     Get destination code blocks for a given code block
     """
-    if monitor_inst is None:
-        monitor_inst = monitor
+    monitor_inst = resolve_monitor(monitor_inst)
     all_dest_blocks = set()
     block_iter = block.getDestinations(monitor_inst)
     while block_iter.hasNext():
@@ -197,7 +194,9 @@ class Circuit(object):
         """
         # get Any Vertex from the cfg
         vert = list(self.cfg.getVertices())[0]
-        return getFunctionContaining(vert.getCodeBlock().getStartAddresses()[0])
+        block = vert.getCodeBlock()
+        return get_function_containing(block.getModel().getProgram(),
+                                       block.getStartAddresses()[0])
 
     def get_loop_exiting_pcode_blocks(self):
         """
@@ -275,10 +274,8 @@ class LoopFinder(object):
     Based on AbstractModularizationCmd.java
     """
     def __init__(self, program=None, monitor_inst=None):
-        if program is None:
-            program = currentProgram
-        if monitor_inst is None:
-            monitor_inst = monitor
+        program = resolve_program(program)
+        monitor_inst = resolve_monitor(monitor_inst)
         self.monitor = monitor_inst
         self.bbm = BasicBlockModel(program)
 
@@ -391,10 +388,8 @@ class GraphPathHelper(object):
     """
     def __init__(self, graph, program=None, monitor_inst=None):
         self.graph = graph
-        if program is None:
-            program = currentProgram
-        if monitor_inst is None:
-            monitor_inst = monitor
+        program = resolve_program(program)
+        monitor_inst = resolve_monitor(monitor_inst)
         self.program = program
         self.monitor = monitor_inst
         # Map<V, Set<E>>

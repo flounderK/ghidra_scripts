@@ -1,5 +1,4 @@
-#@runtime Jython
-from __main__ import *
+from ._compat import resolve_monitor, resolve_program, same_java_object
 from ghidra.app.decompiler import DecompileOptions
 from ghidra.app.decompiler import DecompInterface
 from ghidra.util.task import ConsoleTaskMonitor
@@ -34,17 +33,11 @@ class DecompUtils(object):
     def __init__(self, program=None, monitor_inst=None, decomp_timeout=60,
                  use_cache=True, max_cache_entries=DEFAULT_MAX_ENTRIES,
                  use_shared_cache=True):
-        if program is not None:
-            self.program = program
-        else:
-            self.program = currentProgram
+        self.program = resolve_program(program)
         self.addr_fact = self.program.getAddressFactory()
         self.dtm = self.program.getDataTypeManager()
         self._decomp_options = DecompileOptions()
-        if monitor_inst is None:
-            self._monitor = monitor
-        else:
-            self._monitor = monitor_inst
+        self._monitor = resolve_monitor(monitor_inst)
         self._ifc = DecompInterface()
         self._ifc.setOptions(self._decomp_options)
         self.fm = self.program.getFunctionManager()
@@ -107,7 +100,7 @@ class DecompUtils(object):
         Run the decompiler, opening the program only when it changes
         """
         program = func.getProgram()
-        if self._opened_program is not program:
+        if not same_java_object(self._opened_program, program):
             self._ifc.openProgram(program)
             self._opened_program = program
         return self._ifc.decompileFunction(func, timeout, self._monitor)
@@ -295,8 +288,7 @@ def find_all_pcode_op_instances(opcodes, program=None, **kwargs):
         opcodes = [opcodes]
     if any([i > PcodeOpAST.PCODE_MAX for i in opcodes]):
         raise Exception("Invalud Pcode op")
-    if program is None:
-        program = currentProgram
+    program = resolve_program(program)
     du = DecompUtils(program, **kwargs)
     funcs_with_matching_op = {}
     for func in program.getFunctionManager().getFunctions(1):

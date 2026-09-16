@@ -1,4 +1,3 @@
-#@runtime Jython
 from __main__ import *
 from ghidra_api.decomp_utils import DecompUtils
 import json

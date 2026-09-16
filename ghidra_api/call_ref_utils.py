@@ -1,5 +1,4 @@
-#@runtime Jython
-from __main__ import *
+from ._compat import get_function_containing, resolve_program
 
 from collections import defaultdict
 from ghidra.program.model.symbol import FlowType, RefType, SourceType, MemReferenceImpl
@@ -10,8 +9,7 @@ def get_calling_addresses_to_address(address, program=None):
     """
     get the addresses that call @address
     """
-    if program is None:
-        program = currentProgram
+    program = resolve_program(program)
     refman = program.getReferenceManager()
     calling_addrs = list()
     references = refman.getReferencesTo(address)
@@ -27,8 +25,7 @@ def get_called_addresses_from_address(address, program=None):
     """
     get the addresses that call @address
     """
-    if program is None:
-        program = currentProgram
+    program = resolve_program(program)
     refman = program.getReferenceManager()
     called_addrs = list()
     references = refman.getReferencesFrom(address)
@@ -45,8 +42,7 @@ def get_callsites_for_func_by_name(func_name, program=None):
     Return a dictionary of {Function: [call address, ..]}
     of functions that call @func_name
     """
-    if program is None:
-        program = currentProgram
+    program = resolve_program(program)
 
     # get all functions (including thunks) with the same name
     funcs = [i for i in program.getFunctionManager().getFunctions(1) \
@@ -57,7 +53,7 @@ def get_callsites_for_func_by_name(func_name, program=None):
         entry = func.getEntryPoint()
         calling_addresses = get_calling_addresses_to_address(entry, program)
         for calling_addr in calling_addresses:
-            calling_func = getFunctionContaining(calling_addr)
+            calling_func = get_function_containing(program, calling_addr)
             # ignore thunks, they should already be in the list
             # so they will be processed
             if calling_func.name == func_name:
@@ -70,8 +66,7 @@ def function_calls_self(func, program=None):
     """
     Check if a function calls itself
     """
-    if program is None:
-        program = currentProgram
+    program = resolve_program(program)
     entry = func.getEntryPoint()
     calling_addrs = get_calling_addresses_to_address(entry, program)
     return any([func.body.contains(a) for a in calling_addrs])
@@ -82,8 +77,7 @@ def get_all_functions_leading_to(func, program=None):
     Get a list of all functions that could call into @func and
     any functions that call those functions, etc.
     """
-    if program is None:
-        program = currentProgram
+    program = resolve_program(program)
 
     if func is None:
         return set()
@@ -95,7 +89,7 @@ def get_all_functions_leading_to(func, program=None):
         entry = curr_func.getEntryPoint()
         calling_addrs = get_calling_addresses_to_address(entry, program)
         for calling_addr in calling_addrs:
-            calling_func = getFunctionContaining(calling_addr)
+            calling_func = get_function_containing(program, calling_addr)
             if calling_func in visited:
                 continue
             if calling_func in to_visit:
@@ -117,8 +111,7 @@ def get_all_functions_called_from(func, program=None):
     Get a list of all functions called by @func and
     any functions that are called by those functions, etc.
     """
-    if program is None:
-        program = currentProgram
+    program = resolve_program(program)
 
     if func is None:
         return set()
@@ -133,7 +126,7 @@ def get_all_functions_called_from(func, program=None):
                 called_addrs += list(get_called_addresses_from_address(addr, program=program))
         # called_addrs = curr_func.getCalledFunctions(monitor_inst)
         for called_addr in called_addrs:
-            called_func = getFunctionContaining(called_addr)
+            called_func = get_function_containing(program, called_addr)
             if called_func is None:
                 continue
             if called_func in visited:
@@ -152,11 +145,13 @@ def get_all_functions_called_from(func, program=None):
     return visited
 
 
-def  add_unconditional_call_ref(call_addr, call_to_addr, primary=False):
-    listing = currentProgram.getListing()
+def add_unconditional_call_ref(call_addr, call_to_addr, primary=False,
+                               program=None):
+    program = resolve_program(program)
+    listing = program.getListing()
     COMMENT_PRE = 1
     call_to_addr_repr = ""
-    func = getFunctionContaining(call_to_addr)
+    func = get_function_containing(program, call_to_addr)
     if func is not None:
         call_to_addr_repr = func.name
     else:
@@ -168,6 +163,6 @@ def  add_unconditional_call_ref(call_addr, call_to_addr, primary=False):
         comment_str = existing_comment_str +  "\n" + comment_str
     listing.setComment(call_addr, COMMENT_PRE, comment_str)
     ref_impl = MemReferenceImpl(call_addr, call_to_addr, RefType.UNCONDITIONAL_CALL, SourceType.USER_DEFINED, 0, primary)
-    refman = currentProgram.getReferenceManager()
+    refman = program.getReferenceManager()
     refman.addReference(ref_impl)
 

@@ -1,7 +1,6 @@
-#@runtime Jython
 """Tests for ghidra_api.raw_pcode_utils."""
 
-from __main__ import *
+from ghidra_api._compat import resolve_program
 from ghidra.program.model.pcode import PcodeOp
 
 from ghidra_api import raw_pcode_utils as rpu
@@ -12,7 +11,7 @@ CALL_OPCODES = [PcodeOp.CALL]
 
 class Context(object):
     def __init__(self):
-        self.program = currentProgram
+        self.program = resolve_program(None)
         self.top = get_function(self.program, "top_caller")
         self.leaf = get_function(self.program, "leaf")
 

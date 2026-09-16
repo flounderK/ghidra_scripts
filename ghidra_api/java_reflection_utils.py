@@ -1,5 +1,5 @@
 
-from __main__ import *
+from ._compat import java_class_of
 import java
 
 """
@@ -8,7 +8,7 @@ Utilities for utilizing java's reflection capabilities from python
 
 
 def get_java_field(javaclass, field_name, check_super=True):
-    curr_javaclass = javaclass
+    curr_javaclass = java_class_of(javaclass)
     while curr_javaclass is not None:
         for field in curr_javaclass.getDeclaredFields():
             if field.name != field_name:
@@ -61,7 +61,7 @@ def get_java_method_by_param_constraints(javaclass, method_name, constraints=Non
     return_constraint = constraints.get(-1)
     if return_constraint is not None:
         constraints.pop(-1)
-    curr_javaclass = javaclass
+    curr_javaclass = java_class_of(javaclass)
     while curr_javaclass is not None:
         for method in curr_javaclass.getDeclaredMethods():
             if method.name != method_name:
@@ -100,7 +100,7 @@ def get_java_constructor_by_param_constraints(javaclass, constraints=None):
         constraints = {}
 
     # There are no returns for constructors, so no return check needed
-    for constructor in javaclass.getDeclaredConstructors():
+    for constructor in java_class_of(javaclass).getDeclaredConstructors():
         if satisfies_parameter_constraints(constructor, constraints) is False:
             continue
         # return the first constructor that satisfies all constraints
@@ -117,7 +117,7 @@ def get_accessible_java_constructor_by_param_constraints(javaclass, constraints=
 
 
 def get_all_declared_fields(javaclass, ignore_object_fields=True):
-    curr_javaclass = javaclass
+    curr_javaclass = java_class_of(javaclass)
     all_fields = []
     while curr_javaclass is not None or (curr_javaclass is not None and ignore_object_fields and curr_javaclass != java.lang.Object):
         all_fields += list(curr_javaclass.getDeclaredFields())
@@ -126,7 +126,7 @@ def get_all_declared_fields(javaclass, ignore_object_fields=True):
 
 
 def get_all_declared_methods(javaclass, ignore_object_fields=True):
-    curr_javaclass = javaclass
+    curr_javaclass = java_class_of(javaclass)
     all_methods = []
     while curr_javaclass is not None or (curr_javaclass is not None and ignore_object_fields and curr_javaclass != java.lang.Object):
         all_methods += list(curr_javaclass.getDeclaredMethods())

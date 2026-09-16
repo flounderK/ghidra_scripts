@@ -1,15 +1,18 @@
-#@runtime Jython
 """Tests for ghidra_api.java_reflection_utils, using core Java classes."""
 
-from __main__ import *
+from ghidra_api._compat import java_class_of, resolve_program
 from java.lang import String, Integer, Object
 
 from ghidra_api import java_reflection_utils as jru
 
 
 def declared_method(javaclass, name, param_types):
-    """The overload of @name whose parameter types are exactly @param_types."""
-    for method in javaclass.getDeclaredMethods():
+    """The overload of @name whose parameter types are exactly @param_types.
+
+    java_class_of because Jython hands the reflection methods off the type
+    object itself while JPype keeps java.lang.Class behind ``class_``.
+    """
+    for method in java_class_of(javaclass).getDeclaredMethods():
         if method.getName() != name:
             continue
         if list(method.getParameterTypes()) == list(param_types):
@@ -42,7 +45,7 @@ def test_get_java_field(t, ctx):
 def test_get_accessible_java_field(t, ctx):
     # java.base does not open java.lang to unnamed modules, so use a Ghidra
     # class -- which is what this helper actually exists to reach into
-    program_class = currentProgram.getClass()
+    program_class = resolve_program(None).getClass()
     fields = jru.get_all_declared_fields(program_class)
     t.check("the program class has declared fields", len(fields) > 0)
     if not fields:

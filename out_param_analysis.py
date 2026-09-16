@@ -1,6 +1,6 @@
-from __main__ import *
 from ghidra_api.call_ref_utils import get_callsites_for_func_by_name
 from collections import defaultdict
+from ghidra_api._compat import resolve_program, same_java_object
 from ghidra_api.decomp_utils import DecompUtils
 from ghidra.program.model.pcode import PcodeOpAST
 from ghidra.app.decompiler.component import DecompilerUtils
@@ -41,7 +41,8 @@ class FuncOutParamAnalysisDesc(object):
         looked up once per program and cached. An empty result is cached too,
         since the lookup scans every function in the program
         """
-        if self._callsites is None or self._callsites_program is not program:
+        if (self._callsites is None or
+                not same_java_object(self._callsites_program, program)):
             self._callsites = get_callsites_for_func_by_name(self.func_name, program=program)
             self._callsites_program = program
         return self._callsites
@@ -182,9 +183,7 @@ def out_param_analysis(desc_col, program=None):
     """
     OutParamAnalysisCollection
     """
-    if program is None:
-        program = currentProgram
-
+    program = resolve_program(program)
     stack_reg_offset = getStackRegister(program=program).getOffset()
     du = DecompUtils(program=program)
     for calling_func, descs in desc_col.get_calling_func_to_desc_map(program=program).items():

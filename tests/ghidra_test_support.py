@@ -1,4 +1,3 @@
-#@runtime Jython
 """
 Shared support for the ghidra_api test suites.
 

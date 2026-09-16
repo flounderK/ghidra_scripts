@@ -1,4 +1,3 @@
-#@runtime Jython
 # Verifies the decompilation cache against a real program.
 # Run through Ghidra headless: see run_decomp_cache_tests.sh
 

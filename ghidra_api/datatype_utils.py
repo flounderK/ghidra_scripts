@@ -1,5 +1,4 @@
-#@runtime Jython
-from __main__ import *
+from ._compat import resolve_program
 from ghidra.program.database.data import DataTypeUtilities
 from ghidra.program.model.data import PointerDataType
 from ghidra.program.model.data import MetaDataType
@@ -35,8 +34,7 @@ def getUndefinedRegisterSizeDatatype(program=None):
     size to hold a pointer. Useful if you don't know the real datatype
     and expect it to have to be changed later
     """
-    if program is None:
-        program = currentProgram
+    program = resolve_program(program)
     dtm = program.getDataTypeManager()
     default_ptr_size = program.getDefaultPointerSize()
     return dtm.getDataType("/undefined%d" % default_ptr_size)
@@ -47,8 +45,7 @@ def getGenericPointerDatatype():
 
 
 def getVoidPointerDatatype(program=None):
-    if program is None:
-        program = currentProgram
+    program = resolve_program(program)
     dtm = program.getDataTypeManager()
     void_dt = dtm.getDataType("/void")
     return dtm.getPointer(void_dt)
@@ -62,8 +59,7 @@ def areBaseDataTypesEquallyUnique(datatype_a, datatype_b):
     return a_meta.compareTo(b_meta) == 0
 
 def applyDataTypeAtAddress(address, datatype, size=None, program=None):
-    if program is None:
-        program = currentProgram
+    program = resolve_program(program)
     if size is None:
         size = datatype.getLength()
     listing = program.getListing()
@@ -92,9 +88,10 @@ def get_all_sub_components_of_datadb(datadb):
     return visited
 
 
-def get_all_defined_datatype_instances(dt):
+def get_all_defined_datatype_instances(dt, program=None):
+    program = resolve_program(program)
     using_dt_set = find_datatypes_using(dt)
-    listing = currentProgram.getListing()
+    listing = program.getListing()
     dats = [i for i in listing.getDefinedData(1) if hasattr(i, "dataType") and i.dataType in using_dt_set]
     instances = []
     for dat in dats:

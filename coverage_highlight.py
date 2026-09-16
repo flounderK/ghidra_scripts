@@ -1,5 +1,4 @@
 # Visualize the coverage from a list of addresses
-#@runtime Jython
 #@author Clifton Wolfe
 
 import ghidra
