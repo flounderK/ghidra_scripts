@@ -18,8 +18,12 @@ from ghidra_test_support import run_modules, report
 
 # add a module here as each one gains tests
 MODULES = [
+    "test_byte_search_utils",
     "test_call_ref_utils",
     "test_compat",
+    "test_const_encoding_utils",
+    "test_const_scan_utils",
+    "test_crypto_const_utils",
     "test_datatype_utils",
     "test_function_signature_utils",
     "test_graph_utils",

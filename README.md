@@ -7,6 +7,20 @@ Ghidra's API is still pretty minimal, so a lot of these scripts just add another
 ### call_ref_utils.py
 Utilities for working will call references, mostly for following the call graph, finding callsites through thunks, finding all callsites for a function name, or creating new indirect call references
 
+### byte_search_utils.py
+Wrapper around ghidra's built-in memory search service (`ghidra.features.base.memsearch`, what the Search -> Memory dialog drives). Supports exact byte sequences, per-byte masks, and java regular expressions over bytes, with the same alignment and code-unit filters the GUI offers. `find_any` searches for many patterns in as few passes over memory as possible, which matters because re-reading memory, not matching, is what makes a large scan slow.
+
+Note that a pattern longer than 100 bytes is refused rather than silently unreliable: the searcher only lets a match run 100 bytes past the end of a search chunk, so a longer pattern gets missed whenever it straddles a chunk boundary. Search a prefix and confirm the rest with `read_memory`.
+
+### const_encoding_utils.py
+Turns a logical sequence of constants into the byte sequences it can actually appear as in a binary: big and little endian, packed as u8/u16/u32/u64, wide words split into narrower elements (including the word-swapped layouts where the element order disagrees with the byte order), byte tables widened to u32 the way a C `int[]` table lands, and sequences stored backwards the way bignum limbs usually are. Layouts that produce identical bytes are collapsed and reported once. No ghidra dependency.
+
+### const_scan_utils.py
+Scans a program's memory for the constants in `crypto_const_utils`, in every layout `const_encoding_utils` produces. Searches a bounded prefix of each layout and then confirms the full sequence by reading memory at the hit, which both filters coincidences and reports how much of a table is really present.
+
+### crypto_const_utils.py
+The cryptographic, checksum, hash and algorithmic constants themselves, and the arithmetic that produces them. Most are derived rather than transcribed -- the SHA-2 tables from roots of primes, MD5's from `sin`, Blowfish's from the digits of pi, the AES S-box from the GF(2^8) inverse, CRC tables from their polynomials -- so a typo becomes a broken derivation rather than a signature that silently never matches. The ones with no closed form (DES's permutation tables, the MD2 and SM4 S-boxes, curve parameters) are written out, and the test suite checks each against a structural property it must have. No ghidra dependency, so it can be imported and tested without a program open.
+
 ### datatype_utils.py
 Utilities for finding datatypes, finding datatypes that meet certain constraints, finding datatype usage within other datatypes, and finding field usage across the program as a whole.
 
@@ -45,6 +59,25 @@ Highlight the listing view from addresses listed in a file. Decent for viewing c
 
 ### find_and_ops.py
 Example script for finding every instance of a specific pcode op in raw (not refined) pcode.
+
+### crypto_const_scan.py
+Scan a program for cryptographic, checksum, hash and algorithmic constants: SHA-2 round tables, AES S-boxes and T-tables, CRC tables, Blowfish's digits of pi, DES permutations, curve parameters, base64 alphabets and so on. Identifies an algorithm even when every symbol has been stripped.
+
+Each constant is searched for in every layout it could plausibly have, which is the point of the script -- the same table looks quite different in a 32-bit big-endian firmware image and an x86-64 shared object, and an S-box declared `int[256]` in C lands as u32s rather than bytes. Every hit reports the layout it was read as and how many words of the constant actually verified, so a partially embedded table is distinguishable from a coincidence.
+
+Run it with no arguments to print what it finds. Optional arguments, in any order:
+
+| argument | effect |
+| --- | --- |
+| `bookmark` | add a note bookmark in the "Crypto Constants" category at each match |
+| `label` | add a primary label at each match, leaving any user-defined symbol alone |
+| `complete` | only report constants that verified in full |
+| `scalars` | also report single-word constants such as the TEA delta. Noisy: four bytes is far too little to search memory for, and these mostly appear as instruction immediates anyway, where `large_scalar_search.py` and `find_unk_periphs.py` are the better tools |
+| `category=a,b` | restrict to some of `hash`, `cipher`, `checksum`, `curve`, `encoding`, `algorithmic` |
+| `name=text` | restrict to signatures whose name contains `text` |
+| `align=N` | only report matches at addresses that are a multiple of N |
+
+For reference, scanning OpenSSL 3's `libcrypto.so.3` (4.4MB) takes about eight seconds and finds 40 constants, including the NIST P-256 field prime stored three different ways in the same binary.
 
 ### find_str_constant.py
 sometimes does magic with identifying string functions by looking for specific constant values

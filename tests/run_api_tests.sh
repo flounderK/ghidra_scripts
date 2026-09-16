@@ -13,7 +13,8 @@ TEST_BINARY="$SCRIPT_DIR/api_test_binary"
 LOG="$SCRIPT_DIR/api_test_output.log"
 
 echo "[*] Compiling fixture ..."
-gcc -O0 -g -fno-builtin -o "$TEST_BINARY" "$SCRIPT_DIR/api_test_cases.c"
+gcc -O0 -g -fno-builtin -o "$TEST_BINARY" \
+    "$SCRIPT_DIR/api_test_cases.c" "$SCRIPT_DIR/crypto_const_cases.c"
 
 rm -rf "$PROJECT_DIR"; mkdir -p "$PROJECT_DIR"
 echo "[*] Running ghidra_api suite ..."

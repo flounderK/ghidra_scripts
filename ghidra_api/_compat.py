@@ -91,3 +91,23 @@ def run_command(program, cmd):
         # catch them under Jython and the transaction would be left open
         program.endTransaction(tx_id, False)
         raise
+
+
+def to_java_byte_array(data):
+    """Copy a Python bytes/bytearray into a Java byte[].
+
+    Java bytes are signed, so anything above 0x7f has to be biased into the
+    negative half before the array is built or both runtimes reject it.
+    """
+    signed = [(b - 256) if b > 127 else b for b in bytearray(data)]
+    try:
+        import jarray
+        return jarray.array(signed, 'b')
+    except ImportError:
+        import jpype
+        return jpype.JArray(jpype.JByte)(signed)
+
+
+def from_java_byte_array(data):
+    """Copy a Java byte[] into a Python bytearray, undoing the sign bias."""
+    return bytearray((b & 0xff) for b in data)
