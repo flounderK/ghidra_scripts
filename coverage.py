@@ -55,6 +55,7 @@ def measure_byte_coverage(program=None):
     data = 0
     string = 0
     padding = 0
+    undef = 0
 
     for block in get_memory_blocks(program):
         if not block.isInitialized():
@@ -110,18 +111,29 @@ def measure_byte_coverage(program=None):
 
             if byte_val in PADDING_BYTES:
                 padding += 1
+            else:
+                undef += 1
             addr = addr.add(1)
 
-    undef = total - code - data - string - padding
-    if undef < 0:
-        undef = 0
+    # Counted, not derived. `undef = total - code - data - string - padding`
+    # clamped at zero, so an instruction or datum straddling a block end --
+    # which is counted in full but only partly inside `total` -- silently ate
+    # the undefined bytes instead of showing up. The buckets are reported with
+    # their sum so a disagreement is visible rather than absorbed.
+    accounted = code + data + string + padding + undef
+    if accounted != total:
+        sys.stderr.write(
+            "warning: buckets sum to %d, block total is %d (%+d); an item "
+            "likely straddles a block boundary\n" % (accounted, total, accounted - total)
+        )
     return {
         "total": total,
         "code": code,
         "data": data,
         "str": string,
         "pad": padding,
-        "undef": undef
+        "undef": undef,
+        "accounted": accounted
     }
 
 
@@ -171,7 +183,7 @@ def measure_typing_coverage(program=None):
             returns_typed += 1
 
         sig = func.getSignature()
-        args = list(sig.getArgument())
+        args = list(sig.getArguments())
         params_total += len(args)
         for arg in args:
             dt = arg.getDataType()
@@ -209,7 +221,7 @@ def measure_globals(program=None):
     program = resolve_program(program)
     listing = program.getListing()
 
-    global_total = 0
+    globals_total = 0
     globals_named = 0
     globals_typed = 0
 
@@ -218,7 +230,10 @@ def measure_globals(program=None):
             continue
         if block.isExecute() and not block.isWrite():
             continue
-        data_iter = listing.getDefinedData(block.getAddressRange(), True)
+        # getDefinedData overloads take an Address or an AddressSetView --
+        # there is no AddressRange form. Jython coerced it; JPype raises.
+        block_set = AddressSet(block.getStart(), block.getEnd())
+        data_iter = listing.getDefinedData(block_set, True)
         while data_iter.hasNext():
             data = data_iter.next()
             globals_total += 1
