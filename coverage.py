@@ -153,7 +153,37 @@ def measure_function_naming(program=None):
     return {"funcs": total_funcs, "named": named}
 
 
-def measure_typing_coverage(program=None):
+def measure_typing_coverage(program=None, decompile_locals=False):
+    """Measure how much of the program has been given types.
+
+    `decompile_locals` selects where local variables are counted from. The two
+    are different measurements, not fast and slow paths for one:
+
+      decompile_locals=False  Function.getLocalVariables() -- variables
+                              actually stored in the program database.
+      decompile_locals=True   HighFunction.getLocalSymbolMap() -- every
+                              variable the decompiler infers, including ones
+                              nobody committed.
+
+    On a 167KB ARM binary, 307 functions:
+
+      database     1015 locals,  883 typed (87.0%)    0.12s
+      decompiler   2138 locals, 2061 typed (96.4%)   20.39s
+
+    165x, scaling with function count -- extrapolated to 20k functions the
+    decompiler path is roughly 22 minutes *per measurement*, which is the cost
+    the NOTE this replaces was about.
+
+    **The default changed to False, and it changes the numbers**, because it
+    is a different question: 2.1x fewer locals and a lower typed ratio. Do not
+    chart runs that mix the two. `locals_source` in the result says which was
+    used, so a reading always carries its own provenance.
+
+    Pass decompile_locals=True for an occasional deep measurement -- counting
+    what the decompiler puts in front of a human is arguably the truer answer
+    to "how far along is this". The database view is the one cheap enough to
+    run every time.
+    """
     program = resolve_program(program)
     fm = program.getFunctionManager()
 
@@ -166,10 +196,9 @@ def measure_typing_coverage(program=None):
     locals_total = 0
     locals_typed = 0
 
-    du = DecompUtils(program=program)
+    du = DecompUtils(program=program) if decompile_locals else None
     count = 0
 
-    # NOTE: I think there is a better way to do this that doesn't involve decompiling every function
     for func in fm.getFunctions(True):
         if func.isThunk() or func.isExternal():
             continue
@@ -191,6 +220,12 @@ def measure_typing_coverage(program=None):
                 params_typed += 1
 
         count += 1
+        if not decompile_locals:
+            for var in func.getLocalVariables():
+                locals_total += 1
+                if not _is_default_type(var.getDataType()):
+                    locals_typed += 1
+            continue
         try:
             hf = du.get_high_function(func)
             if hf is not None:
@@ -212,6 +247,7 @@ def measure_typing_coverage(program=None):
         "returns_typed": returns_typed,
         "returns_void": returns_void,
         "returns_default":returns_default,
+        "locals_source": "decompiler" if decompile_locals else "database",
         "locals_total": locals_total,
         "locals_typed": locals_typed,
     }
