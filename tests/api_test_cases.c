@@ -133,6 +133,40 @@ int leaf(int x)          { return x * 2; }
 int middle_caller(int x) { return leaf(x) + 1; }
 int top_caller(int x)    { return middle_caller(x) + middle_caller(x + 1); }
 
+/* two small "libraries" that share helpers, for component_utils:
+ *
+ *   alg_a_run -> alg_a_step -> shared_helper -> shared_leaf
+ *                alg_a_step -> log_msg -> format_msg -> shared_leaf
+ *   alg_b_run -> alg_b_step -> shared_helper, log_msg
+ *   alg_b_run -> alg_b_extra
+ *
+ * log_msg is also called from main, so it is dominated by main alone.
+ * ring_a and ring_b only call each other and nothing calls them: a cycle
+ * with no way in and no way out, which a dominator algorithm has to be
+ * wired to explicitly. */
+int  shared_leaf(int x)   { g_counter += x; return g_counter; }
+int  shared_helper(int x) { return shared_leaf(x) + 1; }
+int  format_msg(int x)    { return shared_leaf(x) * 3; }
+void log_msg(int x)       { g_counter = format_msg(x); }
+int  alg_a_step(int x)    { log_msg(x); return shared_helper(x); }
+int  alg_a_run(int x)     { return alg_a_step(x) + alg_a_step(x + 1); }
+int  alg_b_extra(int x)   { return x ^ 0x5a; }
+int  alg_b_step(int x)    { log_msg(x); return shared_helper(x) * 2; }
+int  alg_b_run(int x)     { return alg_b_step(x) + alg_b_extra(x); }
+int  ring_b(int n);
+
+/* a dispatch table, and a struct that points at it, for table following:
+ *   dispatch reads op_table directly (one hop)
+ *   dispatch_via_struct reads g_ops.table, then the table (two hops) */
+typedef struct OpTable { const BinaryOp *table; int count; } OpTable;
+int  sub_op(int a, int b) { return a - b; }   /* only ever reached via op_table */
+static const BinaryOp op_table[3] = { add_op, mul_op, sub_op };
+OpTable g_ops = { op_table, 3 };
+int  dispatch(int i, int a, int b)            { return op_table[i % 3](a, b); }
+int  dispatch_via_struct(int i, int a, int b) { return g_ops.table[i % g_ops.count](a, b); }
+int  ring_a(int n)        { return n > 0 ? ring_b(n - 1) : 0; }
+int  ring_b(int n)        { return n > 0 ? ring_a(n - 1) : 1; }
+
 int main(void)
 {
     int i;
@@ -144,6 +178,10 @@ int main(void)
     g_counter += apply_op(add_op, 2, 3);
     g_counter += apply_op(mul_op, 4, 5);
     g_counter += top_caller(1);
+    g_counter += alg_a_run(1);
+    g_counter += alg_b_run(2);
+    log_msg(3);
+    g_counter += dispatch(0, 1, 2) + dispatch_via_struct(1, 3, 4);
     takes_struct_pointer(&g_outer);
     takes_struct_value(g_inner);
     printf("%ld %d %d %d\n", g_outer.total, g_counter, (int)g_color,

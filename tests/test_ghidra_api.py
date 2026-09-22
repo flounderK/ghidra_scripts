@@ -20,6 +20,7 @@ MODULES = [
     "test_byte_search_utils",
     "test_call_ref_utils",
     "test_compat",
+    "test_component_utils",
     "test_const_encoding_utils",
     "test_const_scan_utils",
     "test_crypto_const_utils",

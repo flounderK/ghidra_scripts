@@ -12,6 +12,22 @@ Wrapper around ghidra's built-in memory search service (`ghidra.features.base.me
 
 Note that a pattern longer than 100 bytes is refused rather than silently unreliable: the searcher only lets a match run 100 bytes past the end of a search chunk, so a longer pattern gets missed whenever it straddles a chunk boundary. Search a prefix and confirm the rest with `read_memory`.
 
+### component_utils.py
+Clusters a program's functions into components -- the groups that make up one algorithm or one library -- from the dominators of its call graph. If every path from the program's entry points to `f` runs through `d`, then `f` is only ever reached by way of `d` and belongs to whatever `d` is the front door of; the dominator tree of the call graph is therefore a hierarchy of components, and `find_components` cuts it into one. `post_dominator_tree` is the same analysis backwards (what every call chain out of `f` funnels into), and `find_components` clusters on either tree.
+
+The call graph is a Ghidra `GDirectedGraph` over `AttributedVertex` objects (the type Ghidra's graph viewer displays), and the dominance comes from Ghidra's own `ChkDominanceAlgorithm`, the code behind `GraphAlgorithms.findDominanceTree` and the program tree's "Dominance" modularization. A synthetic root and sink are wired to the entry and exit points, including unreferenced recursive cycles, which that algorithm otherwise asserts on.
+
+Two knobs deal with what real binaries do to this:
+
+* **Soft leaves and ignored functions.** A function called from everywhere -- `printf`, `malloc`, a logger -- is dominated by nothing, and in a statically linked binary or bare-metal firmware image its implementation is reachable from every component and so belongs to none. A *soft leaf* stays in the graph with its outgoing calls dropped, so its implementation falls out as a component of its own; an *ignored* function is removed entirely. `STANDARD_LIBRARY_NAMES` is a starting list, matched with leading underscores stripped, and `suggest_soft_leaves` finds the binary's own.
+* **Groups.** A library reached through several API functions has its shared internals dominated by the callers' common ancestor, not by any one API function, so pure dominance scatters it. Each component also carries `groups`: its directly owned sub-units joined up by the calls between them (calls into soft leaves do not count), which puts such a library back into one group. In a stripped static binary nothing matches the name list, and its own omnipresent helpers -- `xmalloc`, the error reporter -- bind everything into one group; `hub_callers=N` makes any function with that many callers non-binding, which is the classic "omnipresent node" rule from software clustering.
+
+Table-driven code is the other thing dominance cannot see on its own: a function only ever reached through a dispatch table, an applet table or a driver's ops struct has no caller, so it is an entry point in its own right and its helpers end up shared. `table_depth` follows a reference from a function body into the data it points at, reads the pointer-sized words there and counts the ones that are function entry points as calls (with 2, a pointer to further data is followed one hop, which is how a device struct reaches its ops struct). The table does not need to be typed; a raw `undefined1[160]` works. In a stripped binary most table targets were never made functions at all (busybox's applet table names 263 entry points and Ghidra had functions for 86 of them), so `create_table_functions` makes a function at any table entry pointing at code outside every existing function. A switch's jump table points inside a function and is left alone.
+
+Statically linked archives bring in whole object files, so an application carries unreferenced API functions that are entry points in their own right and make every internal they touch look shared. `roots` keeps only what is reachable from the functions you name (or from the program's marked entry points with `"entry"`), and lists what it dropped as `unreachable`. Combine it with `include_data_refs` so a `main` passed to `__libc_start_main` by pointer is still reached.
+
+The result can be written out as an indented report (`format_report`), a program tree with a module per component (`create_program_tree`), function tags (`tag_components`), a Graphviz file of the component graph (`write_dot`) or an `AttributedGraph` for the graph viewer (`component_graph`).
+
 ### const_encoding_utils.py
 Turns a logical sequence of constants into the byte sequences it can actually appear as in a binary: big and little endian, packed as u8/u16/u32/u64, wide words split into narrower elements (including the word-swapped layouts where the element order disagrees with the byte order), byte tables widened to u32 the way a C `int[]` table lands, and sequences stored backwards the way bignum limbs usually are. Layouts that produce identical bytes are collapsed and reported once. No ghidra dependency.
 
@@ -78,6 +94,32 @@ Run it with no arguments to print what it finds. Optional arguments, in any orde
 | `align=N` | only report matches at addresses that are a multiple of N |
 
 For reference, scanning OpenSSL 3's `libcrypto.so.3` (4.4MB) takes about eight seconds and finds 40 constants, including the NIST P-256 field prime stored three different ways in the same binary.
+
+### find_components.py
+Cluster the program's functions into components with `component_utils` and print the hierarchy: each component's root, the functions only reachable through it, the nested components, and the groups of sub-units that call each other. Standard library names are soft leaves by default; add the binary's own shared helpers with `soft=` and use `suggest` to find them. With a selection in the GUI only the selected functions are clustered.
+
+Run it with no arguments to print the report. Optional arguments, in any order:
+
+| argument | effect |
+| --- | --- |
+| `min=N` | smallest dominated subtree that counts as a component (default 2) |
+| `hubs=N` | a function with N or more callers does not join groups |
+| `soft=a,b` | extra soft leaves by name; `re:^log_` for a pattern |
+| `ignore=a,b` | drop these functions from the graph entirely |
+| `nostdlib` | do not treat standard library names as soft leaves |
+| `externals` | include imported functions as leaves |
+| `datarefs` | a function pointer taken inside a body counts as a call |
+| `tables=N` | function pointers in data a body refers to count as calls; 2 follows one more pointer hop |
+| `mkfuncs` | with `tables=N` or `datarefs`, create functions at table entries and taken pointers that point at code Ghidra made no function of (modifies the program) |
+| `roots=a,b` | keep only functions reachable from these (`entry` for the program's marked entry points) |
+| `post` | cluster on the post-dominator tree instead |
+| `suggest` | list functions with many callers that could be soft leaves |
+| `tree` | create a program tree "Components" mirroring the clustering |
+| `tag` | tag each function `COMPONENT_<root>` |
+| `graph` | show the component graph in Ghidra's graph viewer (GUI only) |
+| `dot=path` | write the component graph as Graphviz DOT |
+| `out=path` | write the report to a file |
+| `noshared`, `nogroups`, `names=N` | trim the report |
 
 ### find_str_constant.py
 sometimes does magic with identifying string functions by looking for specific constant values
