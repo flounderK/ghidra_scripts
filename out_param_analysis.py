@@ -97,6 +97,24 @@ def _is_stack_derived(varnode, stack_reg_offset):
                 if vn.isRegister() and int(vn.getOffset()) == stack_reg_offset])
 
 
+def _get_call_input(op, param_no):
+    """
+    Return input @param_no of the call @op, or None if it is out of range.
+
+    A CALL op's inputs are input[0] (the call target) followed by the recovered
+    parameters, so a parameter index is only valid when it is below
+    getNumInputs(). Ghidra's PcodeOp.getInput indexes a raw array without a
+    bounds check, so an index past the parameters the decompiler recovered for
+    this callsite raises ArrayIndexOutOfBoundsException. Callsites vary in how
+    completely their signatures are recovered, so guarding here is what lets the
+    analysis run across many functions instead of aborting on the first call
+    with a short parameter list.
+    """
+    if param_no is None or param_no >= op.getNumInputs():
+        return None
+    return op.getInput(param_no)
+
+
 def get_call_param_attributes(op, desc, stack_reg_offset):
     """
     Gather attribute info about the call @op and the parameters to it that we
@@ -105,19 +123,19 @@ def get_call_param_attributes(op, desc, stack_reg_offset):
     attrs = CallParamAttributes(desc)
 
     if desc.src_size_param_no is not None:
-        inp = op.getInput(desc.src_size_param_no)
+        inp = _get_call_input(op, desc.src_size_param_no)
         if inp is not None:
             if inp.isConstant() is False:
                 attrs.var_src_size = True
 
     if desc.dest_size_param_no is not None:
-        inp = op.getInput(desc.dest_size_param_no)
+        inp = _get_call_input(op, desc.dest_size_param_no)
         if inp is not None:
             if inp.isConstant() is False:
                 attrs.var_dest_size = True
 
     if desc.src_param_no is not None:
-        inp = op.getInput(desc.src_param_no)
+        inp = _get_call_input(op, desc.src_param_no)
         if inp is not None:
             # TODO: an addr src from a rw region is still useful if size is not const
             if not (inp.isConstant() is True or inp.isAddress() is True):
@@ -126,7 +144,7 @@ def get_call_param_attributes(op, desc, stack_reg_offset):
                 attrs.stack_src = True
 
     if desc.out_param_no is not None:
-        inp = op.getInput(desc.out_param_no)
+        inp = _get_call_input(op, desc.out_param_no)
         if inp is not None:
             if inp.isConstant() is True or inp.isAddress() is True:
                 attrs.const_or_addr_dest = True
@@ -242,4 +260,39 @@ desc_col.analysis_descs = [
                              src_size_param_no=None,
                              dest_size_param_no=2,
                              src_param_no=None),
+    # strcat(dest, src): unbounded append, like strcpy
+    FuncOutParamAnalysisDesc("strcat", out_param_no=1,
+                             src_size_param_no=None,
+                             dest_size_param_no=None, src_param_no=2),
+    # strncat(dest, src, n): n bounds the copy, not the dest capacity
+    FuncOutParamAnalysisDesc("strncat", out_param_no=1,
+                             src_size_param_no=3,
+                             dest_size_param_no=None, src_param_no=2),
+    # read(fd, buf, count): buf is arg 2; count is how many bytes get written
+    FuncOutParamAnalysisDesc("read", out_param_no=2,
+                             src_size_param_no=3,
+                             dest_size_param_no=None, src_param_no=None),
+    # recv(fd, buf, len, flags): buf is arg 2, len is the write size
+    FuncOutParamAnalysisDesc("recv", out_param_no=2,
+                             src_size_param_no=3,
+                             dest_size_param_no=None, src_param_no=None),
+    # recvfrom(fd, buf, len, flags, src_addr, addrlen): buf is arg 2
+    FuncOutParamAnalysisDesc("recvfrom", out_param_no=2,
+                             src_size_param_no=3,
+                             dest_size_param_no=None, src_param_no=None),
+    # fread(ptr, size, nmemb, stream): true size is size*nmemb, which the
+    # single-index model cannot express; nmemb (arg 3) approximates it
+    FuncOutParamAnalysisDesc("fread", out_param_no=1,
+                             src_size_param_no=3,
+                             dest_size_param_no=None, src_param_no=None),
+    # readlink(path, buf, bufsiz): buf is arg 2, bufsiz bounds it; result is
+    # not NUL-terminated, so a full write is already an off-by-one risk
+    FuncOutParamAnalysisDesc("readlink", out_param_no=2,
+                             src_size_param_no=None,
+                             dest_size_param_no=3, src_param_no=None),
+    # fgets(buf, size, stream): size bounds the write; only interesting when
+    # size is a variable that can exceed the buffer
+    FuncOutParamAnalysisDesc("fgets", out_param_no=1,
+                             src_size_param_no=None,
+                             dest_size_param_no=2, src_param_no=None),
 ]
