@@ -54,6 +54,11 @@ def get_callsites_for_func_by_name(func_name, program=None):
         calling_addresses = get_calling_addresses_to_address(entry, program)
         for calling_addr in calling_addresses:
             calling_func = get_function_containing(program, calling_addr)
+            # a call reference can originate outside any defined function
+            # (e.g. a PLT stub or a region that was never turned into a
+            # function), in which case there is no caller to attribute it to
+            if calling_func is None:
+                continue
             # ignore thunks, they should already be in the list
             # so they will be processed
             if calling_func.name == func_name:
